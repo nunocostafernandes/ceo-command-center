@@ -64,3 +64,81 @@ body {
     padding-bottom: var(--safe-bottom);
   }
 }
+
+/* ── Tiptap rich text editor ─────────────────────────────────────────────── */
+
+.tiptap-editor {
+  min-height: 200px;
+  color: rgba(255,255,255,0.55);
+  font-size: 16px;
+  line-height: 1.75;
+  outline: none;
+}
+
+/* Placeholder */
+.tiptap-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: rgba(255,255,255,0.15);
+  pointer-events: none;
+  height: 0;
+}
+
+/* Paragraphs */
+.tiptap-editor p { margin-bottom: 0.5em; }
+
+/* Bold / Italic / Underline */
+.tiptap-editor strong { color: rgba(255,255,255,0.92); font-weight: 600; }
+.tiptap-editor em { color: rgba(255,255,255,0.75); }
+.tiptap-editor u { text-underline-offset: 3px; }
+
+/* Bullet & Ordered lists */
+.tiptap-editor ul,
+.tiptap-editor ol {
+  padding-left: 1.4em;
+  margin-bottom: 0.5em;
+}
+.tiptap-editor ul { list-style-type: disc; }
+.tiptap-editor ol { list-style-type: decimal; }
+.tiptap-editor li { margin-bottom: 0.25em; }
+.tiptap-editor li p { margin-bottom: 0; }
+
+/* Task list */
+.tiptap-editor ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+.tiptap-editor ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+.tiptap-editor ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.tiptap-editor ul[data-type="taskList"] li > label input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  border-radius: 50%;
+}
+.tiptap-editor ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: rgba(255,255,255,0.30);
+  text-decoration: line-through;
+}
+.tiptap-editor ul[data-type="taskList"] li > div { flex: 1; }
+.tiptap-editor ul[data-type="taskList"] li > div p { margin: 0; }
+
+/* Links */
+.tiptap-editor a.note-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.tiptap-editor a.note-link:hover { opacity: 0.8; }
+
+/* Selection */
+.tiptap-editor ::selection { background: rgba(94,106,210,0.25); }

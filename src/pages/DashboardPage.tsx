@@ -7,6 +7,17 @@ import { useAuth } from '@/contexts/AuthContext'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
 import type { Task, Reminder, Note, Project } from '@/types/database'
 
+function stripHtml(html: string): string {
+  if (!html) return ''
+  if (!html.includes('<')) return html
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    return doc.body.textContent ?? ''
+  } catch {
+    return html.replace(/<[^>]*>/g, '')
+  }
+}
+
 function getGreeting() {
   const h = new Date().getHours()
   if (h < 12) return 'Good morning'
@@ -213,7 +224,7 @@ export function DashboardPage() {
               <div key={note.id} className="card-glass p-4">
                 <p className="text-sm font-semibold text-text-primary mb-1">{note.title}</p>
                 {note.content && (
-                  <p className="text-xs text-text-secondary line-clamp-2">{note.content}</p>
+                  <p className="text-xs text-text-secondary line-clamp-2">{stripHtml(note.content)}</p>
                 )}
                 <p className="text-[10px] text-text-tertiary mt-2">{format(parseISO(note.updated_at), 'MMM d, yyyy')}</p>
               </div>

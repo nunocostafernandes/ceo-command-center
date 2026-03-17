@@ -1,15 +1,22 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Search, Pin, Plus, ChevronLeft, Trash2 } from 'lucide-react'
+import { Search, Pin, Plus, ChevronLeft, Trash2, Bold, Italic, Underline, List, ListOrdered, CheckSquare, Link } from 'lucide-react'
 import { toast } from 'sonner'
 import { format, parseISO } from 'date-fns'
+import { useEditor, EditorContent } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import UnderlineExt from '@tiptap/extension-underline'
+import TaskList from '@tiptap/extension-task-list'
+import TaskItem from '@tiptap/extension-task-item'
+import LinkExt from '@tiptap/extension-link'
+import Placeholder from '@tiptap/extension-placeholder'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
 import type { Note } from '@/types/database'
 
-// Strip HTML tags from legacy content stored as HTML in the DB
+// Strip HTML for plain-text previews
 function stripHtml(html: string): string {
   if (!html) return ''
   if (!html.includes('<')) return html
@@ -99,7 +106,7 @@ export function NotesPage() {
       <AnimatePresence mode="wait">
         {activeNote !== null ? (
           <NoteEditor
-            key="editor"
+            key={activeNote === 'new' ? 'new' : (activeNote as Note).id}
             note={activeNote === 'new' ? null : activeNote}
             onSave={(id, title, content) => upsertMutation.mutate({ id, title, content })}
             onDelete={id => deleteMutation.mutate(id)}
@@ -147,7 +154,6 @@ export function NotesPage() {
                     </AnimatePresence>
                   </div>
                 )}
-
                 <div>
                   {(pinned.length > 0 || all.length > 0) && (
                     <h2 className="text-[11px] font-semibold text-text-tertiary uppercase tracking-widest mb-2">
@@ -187,13 +193,7 @@ export function NotesPage() {
 
 // ─── Note Card ───────────────────────────────────────────────────────────────
 
-interface NoteCardProps {
-  note: Note
-  onOpen: () => void
-  onTogglePin: (note: Note) => void
-}
-
-function NoteCard({ note, onOpen, onTogglePin }: NoteCardProps) {
+function NoteCard({ note, onOpen, onTogglePin }: { note: Note; onOpen: () => void; onTogglePin: (n: Note) => void }) {
   const plainContent = stripHtml(note.content ?? '')
   return (
     <motion.div
@@ -226,89 +226,85 @@ function NoteCard({ note, onOpen, onTogglePin }: NoteCardProps) {
 
 // ─── Note Editor ─────────────────────────────────────────────────────────────
 
-interface NoteEditorProps {
+function NoteEditor({ note, onSave, onDelete, onBack }: {
   note: Note | null
   onSave: (id: string | undefined, title: string, content: string) => void
   onDelete: (id: string) => void
   onBack: () => void
-}
-
-function NoteEditor({ note, onSave, onDelete, onBack }: NoteEditorProps) {
+}) {
+  const [title, setTitle] = useState(note?.title ?? '')
   const titleRef = useRef<HTMLTextAreaElement>(null)
-  const bodyRef = useRef<HTMLTextAreaElement>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const titleState = useRef(title)
+  titleState.current = title
 
-  const initialTitle = note?.title ?? ''
-  const initialContent = stripHtml(note?.content ?? '')
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({ heading: false }),
+      UnderlineExt,
+      TaskList,
+      TaskItem.configure({ nested: true }),
+      LinkExt.configure({
+        openOnClick: true,
+        HTMLAttributes: { class: 'note-link', rel: 'noopener noreferrer', target: '_blank' },
+      }),
+      Placeholder.configure({ placeholder: 'Start writing...' }),
+    ],
+    content: note?.content ?? '',
+    editorProps: {
+      attributes: {
+        class: 'tiptap-editor focus:outline-none',
+      },
+    },
+    onUpdate: ({ editor }) => {
+      scheduleSave(titleState.current, editor.getHTML())
+    },
+  })
 
-  const [title, setTitle] = useState(initialTitle)
-  const [content, setContent] = useState(initialContent)
+  const triggerSave = useCallback((t: string, html: string) => {
+    const isEmpty = html === '<p></p>' || html === ''
+    if (!t.trim() && isEmpty) return
+    onSave(note?.id, t.trim() || 'Untitled', isEmpty ? '' : html)
+  }, [note?.id, onSave])
 
-  // Auto-resize textarea heights
+  const scheduleSave = useCallback((t: string, html: string) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => triggerSave(t, html), 800)
+  }, [triggerSave])
+
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      if (editor) triggerSave(titleState.current, editor.getHTML())
+    }
+  }, [editor, triggerSave])
+
+  useEffect(() => {
+    if (!note && titleRef.current) {
+      titleRef.current.focus()
+    }
+  }, [note])
+
   const autoResize = (el: HTMLTextAreaElement | null) => {
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${el.scrollHeight}px`
   }
 
-  useEffect(() => {
-    autoResize(titleRef.current)
-    autoResize(bodyRef.current)
-    // Focus appropriately
-    if (!note) {
-      titleRef.current?.focus()
-    } else {
-      // Place cursor at end of body
-      const el = bodyRef.current
-      if (el) {
-        el.focus()
-        el.selectionStart = el.selectionEnd = el.value.length
-      }
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const triggerSave = useCallback((currentTitle: string, currentContent: string) => {
-    const t = currentTitle.trim()
-    const c = currentContent.trim()
-    if (!t && !c) return
-    onSave(note?.id, t || 'Untitled', c)
-  }, [note?.id, onSave])
-
-  const scheduleSave = useCallback((t: string, c: string) => {
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => triggerSave(t, c), 800)
-  }, [triggerSave])
-
-  // Save on unmount
-  const titleRef2 = useRef(title)
-  const contentRef2 = useRef(content)
-  titleRef2.current = title
-  contentRef2.current = content
-
-  useEffect(() => {
-    return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current)
-      triggerSave(titleRef2.current, contentRef2.current)
-    }
-  }, [triggerSave])
-
   const handleTitleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setTitle(e.target.value)
     autoResize(e.target)
-    scheduleSave(e.target.value, contentRef2.current)
-  }
-
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setContent(e.target.value)
-    autoResize(e.target)
-    scheduleSave(titleRef2.current, e.target.value)
+    scheduleSave(e.target.value, editor?.getHTML() ?? '')
   }
 
   const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      bodyRef.current?.focus()
-    }
+    if (e.key === 'Enter') { e.preventDefault(); editor?.commands.focus('start') }
+  }
+
+  const setLink = () => {
+    const url = window.prompt('URL')
+    if (!url) return
+    editor?.chain().focus().setLink({ href: url }).run()
   }
 
   const noteDate = note
@@ -317,7 +313,6 @@ function NoteEditor({ note, onSave, onDelete, onBack }: NoteEditorProps) {
 
   return (
     <motion.div
-      key="editor"
       initial={{ opacity: 0, x: 30 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 30 }}
@@ -329,8 +324,8 @@ function NoteEditor({ note, onSave, onDelete, onBack }: NoteEditorProps) {
         paddingBottom: 'calc(var(--tab-bar-height) + var(--safe-bottom))',
       }}
     >
-      {/* Top bar — matches Apple Notes header */}
-      <div className="flex items-center justify-between px-2 py-2 border-b border-white/[0.06]">
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-2 py-2 border-b border-white/[0.06] flex-shrink-0">
         <button
           onClick={onBack}
           className="flex items-center gap-0.5 text-accent text-[15px] font-normal px-2 py-1.5 press rounded-lg"
@@ -338,22 +333,63 @@ function NoteEditor({ note, onSave, onDelete, onBack }: NoteEditorProps) {
           <ChevronLeft size={22} strokeWidth={2} />
           <span>Notes</span>
         </button>
+        {note && (
+          <button
+            onClick={() => onDelete(note.id)}
+            className="p-2 press rounded-lg text-white/30 hover:text-status-error transition-colors"
+          >
+            <Trash2 size={17} />
+          </button>
+        )}
+      </div>
 
-        <div className="flex items-center gap-1">
-          {note && (
-            <button
-              onClick={() => onDelete(note.id)}
-              className="p-2 press rounded-lg text-white/40 hover:text-status-error transition-colors"
-            >
-              <Trash2 size={17} />
-            </button>
-          )}
-        </div>
+      {/* Formatting toolbar */}
+      <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-white/[0.06] flex-shrink-0 overflow-x-auto scrollbar-none">
+        <ToolbarBtn
+          active={editor?.isActive('bold')}
+          onClick={() => editor?.chain().focus().toggleBold().run()}
+          title="Bold"
+        ><Bold size={15} /></ToolbarBtn>
+        <ToolbarBtn
+          active={editor?.isActive('italic')}
+          onClick={() => editor?.chain().focus().toggleItalic().run()}
+          title="Italic"
+        ><Italic size={15} /></ToolbarBtn>
+        <ToolbarBtn
+          active={editor?.isActive('underline')}
+          onClick={() => editor?.chain().focus().toggleUnderline().run()}
+          title="Underline"
+        ><Underline size={15} /></ToolbarBtn>
+
+        <div className="w-px h-4 bg-white/10 mx-1 flex-shrink-0" />
+
+        <ToolbarBtn
+          active={editor?.isActive('bulletList')}
+          onClick={() => editor?.chain().focus().toggleBulletList().run()}
+          title="Bullet list"
+        ><List size={15} /></ToolbarBtn>
+        <ToolbarBtn
+          active={editor?.isActive('orderedList')}
+          onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+          title="Numbered list"
+        ><ListOrdered size={15} /></ToolbarBtn>
+        <ToolbarBtn
+          active={editor?.isActive('taskList')}
+          onClick={() => editor?.chain().focus().toggleTaskList().run()}
+          title="Task list"
+        ><CheckSquare size={15} /></ToolbarBtn>
+
+        <div className="w-px h-4 bg-white/10 mx-1 flex-shrink-0" />
+
+        <ToolbarBtn
+          active={editor?.isActive('link')}
+          onClick={setLink}
+          title="Add link"
+        ><Link size={15} /></ToolbarBtn>
       </div>
 
       {/* Scrollable writing area */}
-      <div className="flex-1 overflow-y-auto px-5 pt-5 pb-10">
-        {/* Date stamp like Apple Notes */}
+      <div className="flex-1 overflow-y-auto px-5 pt-4 pb-10">
         <p className="text-[12px] text-text-tertiary text-center mb-4">{noteDate}</p>
 
         {/* Title */}
@@ -366,22 +402,33 @@ function NoteEditor({ note, onSave, onDelete, onBack }: NoteEditorProps) {
           rows={1}
           className="w-full bg-transparent border-none outline-none resize-none overflow-hidden text-[22px] font-bold text-text-primary placeholder-white/20 leading-tight mb-3"
           style={{ fontFamily: 'inherit' }}
+          onInput={e => autoResize(e.currentTarget)}
         />
 
-        {/* Divider */}
         <div className="h-px bg-white/[0.06] mb-4" />
 
-        {/* Body */}
-        <textarea
-          ref={bodyRef}
-          value={content}
-          onChange={handleContentChange}
-          placeholder="Start writing..."
-          rows={1}
-          className="w-full bg-transparent border-none outline-none resize-none overflow-hidden text-[16px] text-text-secondary placeholder-white/15 leading-[1.75]"
-          style={{ fontFamily: 'inherit', minHeight: '200px' }}
-        />
+        {/* Rich text body */}
+        <EditorContent editor={editor} />
       </div>
     </motion.div>
+  )
+}
+
+function ToolbarBtn({ children, active, onClick, title }: {
+  children: React.ReactNode
+  active?: boolean
+  onClick: () => void
+  title: string
+}) {
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      className={`p-2 rounded-lg transition-colors flex-shrink-0 ${
+        active ? 'bg-accent/20 text-accent' : 'text-white/40 hover:text-white/70 hover:bg-white/5'
+      }`}
+    >
+      {children}
+    </button>
   )
 }
