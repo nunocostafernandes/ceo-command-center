@@ -141,8 +141,10 @@ export function DashboardPage() {
 
   const columnStyle = isDesktop ? { maxHeight: 'calc(100vh - 220px)' } : {}
 
+  // Pull-to-refresh: const { containerRef, isRefreshing } = usePullToRefresh({ onRefresh: refetch, enabled: !isDesktop })
+  // Wrap main div with ref={containerRef}
   return (
-    <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl lg:max-w-none mx-auto">
+    <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl lg:max-w-none mx-auto scroll-contain">
       <div className="mb-6">
         <p className="text-text-secondary text-sm">{getGreeting()},</p>
         <h1 className="text-2xl font-bold text-text-primary">{firstName}</h1>

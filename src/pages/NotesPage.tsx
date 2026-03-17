@@ -18,6 +18,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePlatform } from '@/hooks/usePlatform'
+import { haptics } from '@/lib/haptics'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
 import type { Note } from '@/types/database'
 import type { ReactNode } from 'react'
@@ -273,7 +274,7 @@ export function NotesPage() {
   return (
     <>
       {/* ── Note list ── */}
-      <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto">
+      <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto scroll-contain">
         <div className="mb-5">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold text-text-primary">Notes</h1>
@@ -302,6 +303,8 @@ export function NotesPage() {
                     <NoteCard key={note.id} note={note}
                       onOpen={() => setActiveNote(note)}
                       onTogglePin={n => togglePin.mutate({ id: n.id, pinned: n.is_pinned })}
+                      onDelete={id => deleteMutation.mutate(id)}
+                      isMobile={!isDesktop}
                     />
                   ))}
                 </AnimatePresence>
@@ -321,6 +324,8 @@ export function NotesPage() {
                     <NoteCard key={note.id} note={note}
                       onOpen={() => setActiveNote(note)}
                       onTogglePin={n => togglePin.mutate({ id: n.id, pinned: n.is_pinned })}
+                      onDelete={id => deleteMutation.mutate(id)}
+                      isMobile={!isDesktop}
                     />
                   ))}
                 </AnimatePresence>
@@ -330,7 +335,7 @@ export function NotesPage() {
         )}
 
         <button
-          onClick={() => setActiveNote('new')}
+          onClick={() => { haptics.medium(); setActiveNote('new') }}
           className="fixed bottom-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] right-5 w-14 h-14 bg-accent hover:bg-accent-hover text-white rounded-full shadow-lg flex items-center justify-center z-30 transition-colors"
         >
           <Plus size={24} />
@@ -391,31 +396,84 @@ export function NotesPage() {
 
 // ─── Note Card ────────────────────────────────────────────────────────────────
 
-function NoteCard({ note, onOpen, onTogglePin }: {
-  note: Note; onOpen: () => void; onTogglePin: (n: Note) => void
+function NoteCard({ note, onOpen, onTogglePin, onDelete, isMobile }: {
+  note: Note
+  onOpen: () => void
+  onTogglePin: (n: Note) => void
+  onDelete?: (id: string) => void
+  isMobile?: boolean
 }) {
   const plain = stripHtml(note.content ?? '')
+
+  if (!isMobile) {
+    // Desktop version — no swipe gestures
+    return (
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ duration: 0.18 }}
+        className="card-glass p-4 mb-2 press cursor-pointer"
+        onClick={onOpen}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <p className="font-semibold text-sm text-text-primary leading-snug truncate">{note.title || 'Untitled'}</p>
+          <button className="flex-shrink-0 p-2 -mt-1 -mr-1.5" onClick={e => { e.stopPropagation(); onTogglePin(note) }}>
+            <Pin size={13} className={note.is_pinned ? 'text-accent fill-accent' : 'text-white/20'} />
+          </button>
+        </div>
+        <div className="flex items-baseline gap-2 mt-0.5">
+          <span className="text-[11px] text-text-tertiary flex-shrink-0">{format(parseISO(note.updated_at), 'MMM d')}</span>
+          {plain && <span className="text-xs text-text-tertiary truncate">{plain}</span>}
+        </div>
+      </motion.div>
+    )
+  }
+
+  // Mobile — swipe gestures
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.96 }}
-      transition={{ duration: 0.18 }}
-      className="card-glass p-4 mb-2 press cursor-pointer"
-      onClick={onOpen}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <p className="font-semibold text-sm text-text-primary leading-snug truncate">{note.title || 'Untitled'}</p>
-        <button className="flex-shrink-0 p-1 -mt-0.5 -mr-1" onClick={e => { e.stopPropagation(); onTogglePin(note) }}>
-          <Pin size={13} className={note.is_pinned ? 'text-accent fill-accent' : 'text-white/20'} />
-        </button>
+    <div className="relative mb-2 overflow-hidden rounded-2xl">
+      {/* Left background (delete — revealed on swipe left) */}
+      <div className="absolute inset-y-0 right-0 flex items-center justify-end pr-4 bg-status-error/80 rounded-2xl" style={{ left: '40%' }}>
+        <Trash2 size={18} className="text-white" />
       </div>
-      <div className="flex items-baseline gap-2 mt-0.5">
-        <span className="text-[11px] text-text-tertiary flex-shrink-0">{format(parseISO(note.updated_at), 'MMM d')}</span>
-        {plain && <span className="text-xs text-text-tertiary truncate">{plain}</span>}
+      {/* Right background (pin — revealed on swipe right) */}
+      <div className="absolute inset-y-0 left-0 flex items-center justify-start pl-4 rounded-2xl" style={{ right: '40%', background: '#5E6AD2' }}>
+        <Pin size={18} className="text-white" />
       </div>
-    </motion.div>
+      {/* Card */}
+      <motion.div
+        layout
+        drag="x"
+        dragConstraints={{ left: -120, right: 120 }}
+        dragElastic={0.3}
+        onDragEnd={(_e, info) => {
+          if (info.offset.x < -80 || info.velocity.x < -500) {
+            onDelete?.(note.id)
+          } else if (info.offset.x > 80 || info.velocity.x > 500) {
+            onTogglePin(note)
+          }
+        }}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0, x: 0 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ duration: 0.18 }}
+        className="card-glass p-4 press cursor-pointer relative z-10"
+        onClick={onOpen}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <p className="font-semibold text-sm text-text-primary leading-snug truncate">{note.title || 'Untitled'}</p>
+          <button className="flex-shrink-0 p-2 -mt-1 -mr-1.5" onClick={e => { e.stopPropagation(); onTogglePin(note) }}>
+            <Pin size={13} className={note.is_pinned ? 'text-accent fill-accent' : 'text-white/20'} />
+          </button>
+        </div>
+        <div className="flex items-baseline gap-2 mt-0.5">
+          <span className="text-[11px] text-text-tertiary flex-shrink-0">{format(parseISO(note.updated_at), 'MMM d')}</span>
+          {plain && <span className="text-xs text-text-tertiary truncate">{plain}</span>}
+        </div>
+      </motion.div>
+    </div>
   )
 }
 

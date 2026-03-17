@@ -65,6 +65,9 @@ body {
   .inset-bottom {
     padding-bottom: var(--safe-bottom);
   }
+  .scroll-contain {
+    overscroll-behavior-y: contain;
+  }
 }
 
 /* ── Desktop hover utilities (pointer device only) ──────────────────────── */

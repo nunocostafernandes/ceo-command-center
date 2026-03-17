@@ -7,6 +7,7 @@ import { format, isToday, isPast, parseISO } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePlatform } from '@/hooks/usePlatform'
+import { haptics } from '@/lib/haptics'
 import { PlatformSheet } from '@/components/shared/PlatformSheet'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
 import type { Task } from '@/types/database'
@@ -312,7 +313,7 @@ export function TasksPage() {
   ]
 
   return (
-    <div className={isDesktop ? 'pt-[calc(var(--safe-top)+16px)] pb-4' : 'px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto'}>
+    <div className={isDesktop ? 'pt-[calc(var(--safe-top)+16px)] pb-4' : 'px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto scroll-contain'}>
       <div className={`mb-5 ${isDesktop ? 'px-4' : ''}`}>
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold text-text-primary">Tasks</h1>
@@ -535,10 +536,16 @@ function TaskItem({ task, onToggle, onDelete, onEdit }: TaskItemProps) {
         className="flex items-center gap-3 p-3 card-glass relative z-10"
       >
         <button
-          onClick={e => { e.stopPropagation(); onToggle(task.id, !task.is_completed) }}
-          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${task.is_completed ? 'bg-accent border-accent' : 'border-white/30'}`}
+          className="w-11 h-11 flex items-center justify-center flex-shrink-0 -ml-3 -my-1"
+          onClick={e => {
+            e.stopPropagation()
+            if (!task.is_completed) haptics.success()
+            onToggle(task.id, !task.is_completed)
+          }}
         >
-          {task.is_completed && <Check size={10} strokeWidth={3} className="text-white" />}
+          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${task.is_completed ? 'bg-accent border-accent' : 'border-white/30'}`}>
+            {task.is_completed && <Check size={10} strokeWidth={3} className="text-white" />}
+          </div>
         </button>
 
         {/* Tap body to edit */}

@@ -157,7 +157,7 @@ export function CalendarPage() {
               whileTap={{ scale: 0.9 }}
               onClick={() => setSelectedDay(day)}
               className={`relative flex flex-col items-center py-1 rounded-xl transition-colors ${
-                isDesktop ? 'min-h-[80px] justify-start pt-2' : ''
+                isDesktop ? 'min-h-[80px] justify-start pt-2' : 'min-h-[44px] justify-center'
               } ${
                 isSelected ? 'bg-accent' : isTodayDay ? 'bg-white text-[#020203]' : 'hover:bg-white/5'
               }`}
@@ -267,7 +267,7 @@ export function CalendarPage() {
         </div>
       ) : (
         // ── Mobile: stacked layout ──────────────────────────────────────────
-        <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto">
+        <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto scroll-contain">
           <div className="flex items-center justify-between mb-5">
             <h1 className="text-2xl font-bold text-text-primary">Calendar</h1>
             <div className="flex items-center gap-2">

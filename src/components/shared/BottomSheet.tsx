@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
+import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
 
 interface BottomSheetProps {
@@ -9,6 +10,27 @@ interface BottomSheetProps {
 }
 
 export function BottomSheet({ isOpen, onClose, title, children }: BottomSheetProps) {
+  const [keyboardOffset, setKeyboardOffset] = useState(0)
+
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const handler = () => {
+      const offset = window.innerHeight - vv.height - vv.offsetTop
+      setKeyboardOffset(Math.max(0, offset))
+    }
+    vv.addEventListener('resize', handler)
+    vv.addEventListener('scroll', handler)
+    return () => {
+      vv.removeEventListener('resize', handler)
+      vv.removeEventListener('scroll', handler)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isOpen) setKeyboardOffset(0)
+  }, [isOpen])
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -23,7 +45,11 @@ export function BottomSheet({ isOpen, onClose, title, children }: BottomSheetPro
           />
           <motion.div
             className="fixed bottom-0 left-0 right-0 z-50 bg-[#0f0f12] rounded-t-[24px] border-t border-white/10 overflow-y-auto"
-            style={{ maxHeight: '90dvh', paddingBottom: 'calc(24px + var(--safe-bottom))' }}
+            style={{
+              maxHeight: '90dvh',
+              paddingBottom: `calc(24px + var(--safe-bottom))`,
+              bottom: keyboardOffset,
+            }}
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
