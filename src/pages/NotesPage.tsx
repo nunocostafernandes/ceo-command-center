@@ -21,7 +21,7 @@ import { SkeletonCard } from '@/components/shared/SkeletonCard'
 import type { Note } from '@/types/database'
 import type { ReactNode } from 'react'
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function stripHtml(html: string): string {
   if (!html) return ''
@@ -33,9 +33,9 @@ function stripHtml(html: string): string {
   }
 }
 
-// Tiptap never emits inline styles, <div>, <span>, <br> as line breaks, or
-// HTML entities like &nbsp;. Any of those signals legacy/pasted content that
-// will crash ProseMirror's schema validator → strip to safe plain text.
+// Tiptap-native HTML only contains <p>, <strong>, <em>, <u>, <ul>, <ol>, <li>,
+// <a>, task-list nodes. Any other HTML (from pasted content or old notes) will
+// crash ProseMirror's schema validator — strip it to safe plain text first.
 function safeContent(raw: string | null): string {
   if (!raw) return ''
   if (!raw.includes('<')) return raw
@@ -50,12 +50,13 @@ function safeContent(raw: string | null): string {
   return isLegacy ? stripHtml(raw) : raw
 }
 
-// ─── Error boundary (catches Tiptap / ProseMirror schema errors) ─────────────
+// ─── Error boundary ───────────────────────────────────────────────────────────
 
 interface EBState { error: boolean }
 class EditorErrorBoundary extends Component<{ children: ReactNode; fallback: ReactNode }, EBState> {
   state: EBState = { error: false }
   static getDerivedStateFromError() { return { error: true } }
+  componentDidCatch(err: unknown) { console.error('[EditorErrorBoundary]', err) }
   render() { return this.state.error ? this.props.fallback : this.props.children }
 }
 
@@ -120,6 +121,27 @@ export function NotesPage() {
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['notes', userId] }),
   })
+
+  // ── Stable callbacks ──────────────────────────────────────────────────────
+  // These MUST be stable (same reference across renders). If they are inline
+  // arrow functions, every NotesPage re-render gives NoteEditorContent a new
+  // `onSave` reference → triggerSave recreates → useEffect([triggerSave])
+  // cleanup fires → immediate save → query invalidates → re-render →
+  // infinite loop → eventual Tiptap crash → black screen.
+  const upsertRef = useRef(upsertMutation.mutate)
+  upsertRef.current = upsertMutation.mutate
+  const deleteRef = useRef(deleteMutation.mutate)
+  deleteRef.current = deleteMutation.mutate
+
+  const handleSave = useCallback((id: string | undefined, title: string, content: string) => {
+    upsertRef.current({ id, title, content })
+  }, []) // stable forever — reads mutate fn from ref
+
+  const handleDelete = useCallback((id: string) => {
+    deleteRef.current(id)
+  }, []) // stable forever
+
+  const handleBack = useCallback(() => setActiveNote(null), [])
 
   const filtered = (notes ?? []).filter(n =>
     n.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -195,9 +217,12 @@ export function NotesPage() {
         </button>
       </div>
 
-      {/* ── Editor portal — AnimatePresence lives INSIDE the portal so it
-           co-locates with its motion children. This prevents the
-           AnimatePresence → portal mismatch that caused blank screens. ── */}
+      {/* ── Editor portal ─────────────────────────────────────────────────────
+           AnimatePresence lives INSIDE the portal so it co-locates with its
+           motion children. position:fixed on the motion.div is rendered directly
+           on document.body, bypassing PageTransition's CSS transform ancestor
+           which would otherwise break fixed positioning.
+      ── */}
       {createPortal(
         <AnimatePresence>
           {activeNote !== null && (
@@ -210,7 +235,6 @@ export function NotesPage() {
               style={{
                 position: 'fixed',
                 inset: 0,
-                left: 0,
                 zIndex: 9999,
                 display: 'flex',
                 flexDirection: 'column',
@@ -223,17 +247,17 @@ export function NotesPage() {
                 fallback={
                   <PlainTextFallback
                     note={activeNoteObj}
-                    onSave={(id, title, content) => upsertMutation.mutate({ id, title, content })}
-                    onDelete={id => deleteMutation.mutate(id)}
-                    onBack={() => setActiveNote(null)}
+                    onSave={handleSave}
+                    onDelete={handleDelete}
+                    onBack={handleBack}
                   />
                 }
               >
                 <NoteEditorContent
                   note={activeNoteObj}
-                  onSave={(id, title, content) => upsertMutation.mutate({ id, title, content })}
-                  onDelete={id => deleteMutation.mutate(id)}
-                  onBack={() => setActiveNote(null)}
+                  onSave={handleSave}
+                  onDelete={handleDelete}
+                  onBack={handleBack}
                 />
               </EditorErrorBoundary>
             </motion.div>
@@ -275,7 +299,7 @@ function NoteCard({ note, onOpen, onTogglePin }: {
   )
 }
 
-// ─── Shared editor chrome (top bar + toolbar) ─────────────────────────────────
+// ─── Shared editor chrome ─────────────────────────────────────────────────────
 
 interface EditorChromeProps {
   note: Note | null
@@ -320,10 +344,36 @@ function NoteEditorContent({ note, onSave, onDelete, onBack }: {
   onBack: () => void
 }) {
   const [title, setTitle] = useState(note?.title ?? '')
-  const titleRef = useRef<HTMLTextAreaElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const titleState = useRef(title)
-  titleState.current = title
+
+  // Always-current refs — let triggerSave read the latest values without
+  // being listed as effect dependencies (which would cause the effect to
+  // re-run and fire spurious mid-lifecycle saves).
+  const titleValRef = useRef(title)
+  titleValRef.current = title
+  const onSaveRef = useRef(onSave)
+  onSaveRef.current = onSave
+  const noteIdRef = useRef(note?.id)
+  noteIdRef.current = note?.id
+
+  // triggerSave has [] deps — it's stable forever. It reads live values from
+  // refs, so it always uses the current title, noteId, and onSave callback.
+  const triggerSave = useCallback((t: string, html: string) => {
+    const empty = html === '<p></p>' || html === ''
+    if (!t.trim() && empty) return
+    onSaveRef.current(noteIdRef.current, t.trim() || 'Untitled', empty ? '' : html)
+  }, [])
+
+  const scheduleSave = useCallback((t: string, html: string) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => triggerSave(t, html), 800)
+  }, [triggerSave])
+
+  // Stable ref so Tiptap's onUpdate callback (captured once at editor creation)
+  // always calls the latest scheduleSave without needing to recreate the editor.
+  const scheduleSaveRef = useRef(scheduleSave)
+  scheduleSaveRef.current = scheduleSave
 
   const initialContent = safeContent(note?.content ?? null)
 
@@ -334,40 +384,33 @@ function NoteEditorContent({ note, onSave, onDelete, onBack }: {
       TaskList,
       TaskItem.configure({ nested: true }),
       LinkExt.configure({
-        openOnClick: false, // prevent accidental navigation while editing
+        openOnClick: false,
         HTMLAttributes: { class: 'note-link', rel: 'noopener noreferrer', target: '_blank' },
       }),
       Placeholder.configure({ placeholder: 'Start writing…' }),
     ],
     content: initialContent,
     editorProps: { attributes: { class: 'tiptap-editor focus:outline-none' } },
-    onUpdate: ({ editor }) => scheduleSave(titleState.current, editor.getHTML()),
+    // Delegate through ref so this always calls the latest scheduleSave even
+    // though Tiptap captures this callback only once on editor creation.
+    onUpdate: ({ editor }) => scheduleSaveRef.current(titleValRef.current, editor.getHTML()),
   })
-
-  const triggerSave = useCallback((t: string, html: string) => {
-    const empty = html === '<p></p>' || html === ''
-    if (!t.trim() && empty) return
-    onSave(note?.id, t.trim() || 'Untitled', empty ? '' : html)
-  }, [note?.id, onSave])
-
-  const scheduleSave = useCallback((t: string, html: string) => {
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => triggerSave(t, html), 800)
-  }, [triggerSave])
 
   const editorRef = useRef(editor)
   editorRef.current = editor
 
+  // Save on TRUE unmount only. triggerSave is stable ([] deps), so this
+  // effect never re-runs mid-lifecycle — no spurious saves, no re-render loop.
   useEffect(() => {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current)
       const e = editorRef.current
-      if (e) triggerSave(titleState.current, e.getHTML())
+      if (e) triggerSave(titleValRef.current, e.getHTML())
     }
-  }, [triggerSave])
+  }, [triggerSave]) // triggerSave stable → effectively []
 
   useEffect(() => {
-    if (!note) titleRef.current?.focus()
+    if (!note) textareaRef.current?.focus()
   }, [note])
 
   const autoResize = (el: HTMLTextAreaElement | null) => {
@@ -399,9 +442,13 @@ function NoteEditorContent({ note, onSave, onDelete, onBack }: {
   return (
     <EditorChrome note={note} onBack={onBack} onDelete={onDelete} toolbar={toolbar}>
       <textarea
-        ref={titleRef}
+        ref={textareaRef}
         value={title}
-        onChange={e => { setTitle(e.target.value); autoResize(e.target); scheduleSave(e.target.value, editorRef.current?.getHTML() ?? '') }}
+        onChange={e => {
+          setTitle(e.target.value)
+          autoResize(e.target)
+          scheduleSave(e.target.value, editorRef.current?.getHTML() ?? '')
+        }}
         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); editor?.commands.focus('start') } }}
         onInput={e => autoResize(e.currentTarget)}
         placeholder="Title"
@@ -419,7 +466,7 @@ function NoteEditorContent({ note, onSave, onDelete, onBack }: {
   )
 }
 
-// ─── Plain-text fallback (shown if Tiptap crashes on bad content) ─────────────
+// ─── Plain-text fallback ──────────────────────────────────────────────────────
 
 function PlainTextFallback({ note, onSave, onDelete, onBack }: {
   note: Note | null
@@ -431,22 +478,34 @@ function PlainTextFallback({ note, onSave, onDelete, onBack }: {
   const [body, setBody] = useState(stripHtml(note?.content ?? ''))
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Always-current refs — same pattern as NoteEditorContent
+  const onSaveRef = useRef(onSave)
+  onSaveRef.current = onSave
+  const noteIdRef = useRef(note?.id)
+  noteIdRef.current = note?.id
+  const titleValRef = useRef(title)
+  titleValRef.current = title
+  const bodyValRef = useRef(body)
+  bodyValRef.current = body
+
   const save = useCallback((t: string, b: string) => {
     if (!t.trim() && !b.trim()) return
-    onSave(note?.id, t.trim() || 'Untitled', b)
-  }, [note?.id, onSave])
+    onSaveRef.current(noteIdRef.current, t.trim() || 'Untitled', b)
+  }, [])
 
-  const schedule = (t: string, b: string) => {
+  const schedule = useCallback((t: string, b: string) => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => save(t, b), 800)
-  }
+  }, [save])
 
+  // Save on TRUE unmount only — save is stable ([] deps) so this never
+  // fires mid-lifecycle.
   useEffect(() => {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current)
-      save(title, body)
+      save(titleValRef.current, bodyValRef.current)
     }
-  }, [save, title, body])
+  }, [save])
 
   return (
     <EditorChrome note={note} onBack={onBack} onDelete={onDelete}>
