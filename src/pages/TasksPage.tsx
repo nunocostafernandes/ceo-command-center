@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Plus, Check } from 'lucide-react'
+import { Plus, Check, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { format, isToday, isPast, parseISO } from 'date-fns'
 import { supabase } from '@/lib/supabase'
@@ -22,6 +22,8 @@ interface TaskForm {
   assigned_to: string
 }
 
+const emptyForm: TaskForm = { title: '', priority: null, due_date: '', list_name: 'Inbox', description: '', assigned_to: '' }
+
 export function TasksPage() {
   const { user } = useAuth()
   const qc = useQueryClient()
@@ -29,9 +31,12 @@ export function TasksPage() {
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all')
-  const [sheetOpen, setSheetOpen] = useState(false)
+  const [createSheetOpen, setCreateSheetOpen] = useState(false)
+  const [editSheetOpen, setEditSheetOpen] = useState(false)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [inlineInputs, setInlineInputs] = useState<Record<string, string>>({})
-  const [form, setForm] = useState<TaskForm>({ title: '', priority: null, due_date: '', list_name: 'Inbox', description: '', assigned_to: '' })
+  const [form, setForm] = useState<TaskForm>(emptyForm)
+  const [editForm, setEditForm] = useState<TaskForm>(emptyForm)
 
   const { data: tasks, isLoading } = useQuery({
     queryKey: ['tasks', userId],
@@ -76,10 +81,25 @@ export function TasksPage() {
       void qc.invalidateQueries({ queryKey: ['tasks', userId] })
       void qc.invalidateQueries({ queryKey: ['kpi-tasks', userId] })
       toast.success('Task created')
-      setSheetOpen(false)
-      setForm({ title: '', priority: null, due_date: '', list_name: 'Inbox', description: '', assigned_to: '' })
+      setCreateSheetOpen(false)
+      setForm(emptyForm)
     },
     onError: () => toast.error('Failed to create task'),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: Partial<Task> }) => {
+      const { error } = await supabase.from('ceo_tasks').update(payload).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['tasks', userId] })
+      void qc.invalidateQueries({ queryKey: ['kpi-tasks', userId] })
+      toast.success('Task updated')
+      setEditSheetOpen(false)
+      setEditingTask(null)
+    },
+    onError: () => toast.error('Failed to update task'),
   })
 
   const deleteMutation = useMutation({
@@ -90,6 +110,8 @@ export function TasksPage() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['tasks', userId] })
       void qc.invalidateQueries({ queryKey: ['kpi-tasks', userId] })
+      setEditSheetOpen(false)
+      setEditingTask(null)
     },
     onError: () => toast.error('Failed to delete task'),
   })
@@ -99,10 +121,37 @@ export function TasksPage() {
       const { error } = await supabase.from('ceo_tasks').insert({ user_id: userId!, title, list_name: listName, is_completed: false, sort_order: 9999 })
       if (error) throw error
     },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['tasks', userId] })
-    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['tasks', userId] }),
   })
+
+  const openEdit = (task: Task) => {
+    setEditingTask(task)
+    setEditForm({
+      title: task.title,
+      priority: task.priority,
+      due_date: task.due_date ?? '',
+      list_name: task.list_name ?? 'Inbox',
+      description: task.description ?? '',
+      assigned_to: task.assigned_to ?? '',
+    })
+    setEditSheetOpen(true)
+  }
+
+  const handleUpdate = () => {
+    if (!editingTask) return
+    updateMutation.mutate({
+      id: editingTask.id,
+      payload: {
+        title: editForm.title,
+        description: editForm.description || null,
+        priority: editForm.priority,
+        due_date: editForm.due_date || null,
+        list_name: editForm.list_name || 'Inbox',
+        assigned_to: editForm.assigned_to || null,
+        updated_at: new Date().toISOString(),
+      },
+    })
+  }
 
   const filtered = (tasks ?? []).filter(t => {
     if (statusFilter === 'active' && t.is_completed) return false
@@ -182,6 +231,7 @@ export function TasksPage() {
                     task={task}
                     onToggle={(id, completed) => completeMutation.mutate({ id, completed })}
                     onDelete={id => deleteMutation.mutate(id)}
+                    onEdit={() => openEdit(task)}
                   />
                 ))}
               </AnimatePresence>
@@ -193,11 +243,7 @@ export function TasksPage() {
                       const val = inlineInputs[listName]?.trim()
                       if (val) {
                         createInline.mutate({ title: val, listName })
-                        setInlineInputs(prev => {
-                          const next = { ...prev }
-                          delete next[listName]
-                          return next
-                        })
+                        setInlineInputs(prev => { const next = { ...prev }; delete next[listName]; return next })
                       }
                     }}
                     className="flex gap-2"
@@ -228,18 +274,20 @@ export function TasksPage() {
         )
       )}
 
+      {/* FAB */}
       <button
-        onClick={() => setSheetOpen(true)}
+        onClick={() => setCreateSheetOpen(true)}
         className="fixed bottom-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] right-5 lg:bottom-8 w-14 h-14 bg-accent hover:bg-accent-hover text-white rounded-full shadow-lg flex items-center justify-center z-30 transition-colors"
       >
         <Plus size={24} />
       </button>
 
-      <BottomSheet isOpen={sheetOpen} onClose={() => setSheetOpen(false)} title="New Task">
+      {/* Create sheet */}
+      <BottomSheet isOpen={createSheetOpen} onClose={() => setCreateSheetOpen(false)} title="New Task">
         <div className="space-y-3 pb-4">
           <input type="text" placeholder="Task title" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className={inputClass} />
           <textarea placeholder="Description (optional)" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className={`${inputClass} resize-none`} rows={3} />
-          <input type="text" placeholder="List name (e.g. Inbox)" value={form.list_name} onChange={e => setForm(f => ({ ...f, list_name: e.target.value }))} className={inputClass} />
+          <input type="text" placeholder="List (e.g. Inbox)" value={form.list_name} onChange={e => setForm(f => ({ ...f, list_name: e.target.value }))} className={inputClass} />
           <select value={form.priority ?? ''} onChange={e => setForm(f => ({ ...f, priority: (e.target.value || null) as Task['priority'] }))} className={inputClass}>
             <option value="">Priority (none)</option>
             <option value="urgent">Urgent</option>
@@ -258,6 +306,39 @@ export function TasksPage() {
           </button>
         </div>
       </BottomSheet>
+
+      {/* Edit sheet */}
+      <BottomSheet isOpen={editSheetOpen} onClose={() => { setEditSheetOpen(false); setEditingTask(null) }} title="Edit Task">
+        <div className="space-y-3 pb-4">
+          <input type="text" placeholder="Task title" value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} className={inputClass} />
+          <textarea placeholder="Description (optional)" value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} className={`${inputClass} resize-none`} rows={3} />
+          <input type="text" placeholder="List (e.g. Inbox)" value={editForm.list_name} onChange={e => setEditForm(f => ({ ...f, list_name: e.target.value }))} className={inputClass} />
+          <select value={editForm.priority ?? ''} onChange={e => setEditForm(f => ({ ...f, priority: (e.target.value || null) as Task['priority'] }))} className={inputClass}>
+            <option value="">Priority (none)</option>
+            <option value="urgent">Urgent</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+          <input type="date" value={editForm.due_date} onChange={e => setEditForm(f => ({ ...f, due_date: e.target.value }))} className={inputClass} />
+          <input type="text" placeholder="Assign to (optional)" value={editForm.assigned_to} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))} className={inputClass} />
+          <button
+            onClick={handleUpdate}
+            disabled={!editForm.title || updateMutation.isPending}
+            className="w-full bg-accent hover:bg-accent-hover text-white rounded-btn py-3 font-semibold text-sm transition-colors disabled:opacity-60"
+          >
+            {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+          </button>
+          <button
+            onClick={() => editingTask && deleteMutation.mutate(editingTask.id)}
+            disabled={deleteMutation.isPending}
+            className="w-full bg-status-error/10 hover:bg-status-error/20 text-status-error rounded-btn py-3 font-semibold text-sm transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+          >
+            <Trash2 size={15} />
+            Delete Task
+          </button>
+        </div>
+      </BottomSheet>
     </div>
   )
 }
@@ -266,9 +347,10 @@ interface TaskItemProps {
   task: Task
   onToggle: (id: string, completed: boolean) => void
   onDelete: (id: string) => void
+  onEdit: () => void
 }
 
-function TaskItem({ task, onToggle, onDelete }: TaskItemProps) {
+function TaskItem({ task, onToggle, onDelete, onEdit }: TaskItemProps) {
   const isOverdue = task.due_date && !task.is_completed && isPast(parseISO(task.due_date)) && !isToday(parseISO(task.due_date))
   const isDueToday = task.due_date && isToday(parseISO(task.due_date))
 
@@ -292,13 +374,14 @@ function TaskItem({ task, onToggle, onDelete }: TaskItemProps) {
         className="flex items-center gap-3 p-3 card-glass relative z-10"
       >
         <button
-          onClick={() => onToggle(task.id, !task.is_completed)}
+          onClick={e => { e.stopPropagation(); onToggle(task.id, !task.is_completed) }}
           className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${task.is_completed ? 'bg-accent border-accent' : 'border-white/30'}`}
         >
           {task.is_completed && <Check size={10} strokeWidth={3} className="text-white" />}
         </button>
 
-        <div className="flex-1 min-w-0">
+        {/* Tap body to edit */}
+        <button className="flex-1 min-w-0 text-left" onClick={onEdit}>
           <p className={`text-sm ${task.is_completed ? 'line-through text-text-tertiary' : 'text-text-primary'}`}>
             {task.title}
           </p>
@@ -312,7 +395,7 @@ function TaskItem({ task, onToggle, onDelete }: TaskItemProps) {
               <p className="text-xs text-text-tertiary">→ {task.assigned_to}</p>
             )}
           </div>
-        </div>
+        </button>
 
         {task.priority && (
           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${priorityColors[task.priority] ?? 'bg-white/20'}`} />
