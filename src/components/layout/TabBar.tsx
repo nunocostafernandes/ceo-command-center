@@ -20,6 +20,7 @@ export function TabBar() {
         <NavLink
           key={to}
           to={to}
+          aria-label={label}
           className={({ isActive }) =>
             `flex flex-col items-center justify-center gap-1 pt-3 px-3 flex-1 ${isActive ? 'text-accent' : 'text-text-secondary'}`
           }
@@ -28,6 +29,7 @@ export function TabBar() {
             <motion.div
               className="flex flex-col items-center gap-1"
               whileTap={{ scale: 0.9 }}
+              aria-current={isActive ? 'page' : undefined}
             >
               <Icon size={22} strokeWidth={isActive ? 2.5 : 2} />
               <span className="text-[10px] font-medium">{label}</span>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, Bell, Check, Plus } from 'lucide-react'
@@ -101,13 +101,34 @@ export function CalendarPage() {
   })
 
   const selectedDayStr = format(selectedDay, 'yyyy-MM-dd')
-  const dayTasks = (tasks ?? []).filter(t => t.due_date === selectedDayStr)
-  const dayReminders = (reminders ?? []).filter(r => r.remind_at.startsWith(selectedDayStr))
+
+  const tasksByDay = useMemo(() => {
+    const map: Record<string, typeof tasks> = {}
+    for (const t of tasks ?? []) {
+      if (!t.due_date) continue
+      if (!map[t.due_date]) map[t.due_date] = []
+      map[t.due_date]!.push(t)
+    }
+    return map
+  }, [tasks])
+
+  const remindersByDay = useMemo(() => {
+    const map: Record<string, typeof reminders> = {}
+    for (const r of reminders ?? []) {
+      const dayStr = r.remind_at.slice(0, 10)
+      if (!map[dayStr]) map[dayStr] = []
+      map[dayStr]!.push(r)
+    }
+    return map
+  }, [reminders])
+
+  const dayTasks = tasksByDay[selectedDayStr] ?? []
+  const dayReminders = remindersByDay[selectedDayStr] ?? []
 
   const getDotsForDay = (day: Date) => {
     const dayStr = format(day, 'yyyy-MM-dd')
-    const hasTasks = (tasks ?? []).some(t => t.due_date === dayStr)
-    const hasReminders = (reminders ?? []).some(r => r.remind_at.startsWith(dayStr))
+    const hasTasks = !!tasksByDay[dayStr]?.length
+    const hasReminders = !!remindersByDay[dayStr]?.length
     return { hasTasks, hasReminders }
   }
 

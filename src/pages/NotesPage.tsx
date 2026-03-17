@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, Component } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, Component } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -69,8 +69,15 @@ export function NotesPage() {
   const { isDesktop } = usePlatform()
   const qc = useQueryClient()
   const userId = user?.id
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [activeNote, setActiveNote] = useState<Note | null | 'new'>(null)
+
+  // Debounce: only update `search` (used for filtering) 300ms after typing stops
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput), 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
 
   const { data: notes, isLoading } = useQuery({
     queryKey: ['notes', userId],
@@ -179,8 +186,8 @@ export function NotesPage() {
               <input
                 type="text"
                 placeholder="Search notes..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
                 className="bg-white/5 rounded-xl pl-8 pr-3 py-2 text-xs w-full focus:outline-none border border-white/[0.07] focus:border-accent/50 text-text-primary placeholder-text-tertiary transition-colors"
               />
             </div>
@@ -284,8 +291,8 @@ export function NotesPage() {
             <input
               type="text"
               placeholder="Search notes..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
               className="bg-white/5 rounded-xl pl-9 pr-4 py-2.5 text-sm w-full focus:outline-none border border-white/[0.07] focus:border-accent/50 text-text-primary placeholder-text-tertiary transition-colors"
             />
           </div>
@@ -335,6 +342,7 @@ export function NotesPage() {
         )}
 
         <button
+          aria-label="New note"
           onClick={() => { haptics.medium(); setActiveNote('new') }}
           className="fixed bottom-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] right-5 w-14 h-14 bg-accent hover:bg-accent-hover text-white rounded-full shadow-lg flex items-center justify-center z-30 transition-colors"
         >
@@ -403,7 +411,7 @@ function NoteCard({ note, onOpen, onTogglePin, onDelete, isMobile }: {
   onDelete?: (id: string) => void
   isMobile?: boolean
 }) {
-  const plain = stripHtml(note.content ?? '')
+  const plain = useMemo(() => stripHtml(note.content ?? ''), [note.content])
 
   if (!isMobile) {
     // Desktop version — no swipe gestures
@@ -415,7 +423,10 @@ function NoteCard({ note, onOpen, onTogglePin, onDelete, isMobile }: {
         exit={{ opacity: 0, scale: 0.96 }}
         transition={{ duration: 0.18 }}
         className="card-glass p-4 mb-2 press cursor-pointer"
+        role="button"
+        tabIndex={0}
         onClick={onOpen}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onOpen() }}
       >
         <div className="flex items-start justify-between gap-2">
           <p className="font-semibold text-sm text-text-primary leading-snug truncate">{note.title || 'Untitled'}</p>
@@ -460,7 +471,10 @@ function NoteCard({ note, onOpen, onTogglePin, onDelete, isMobile }: {
         exit={{ opacity: 0, scale: 0.96 }}
         transition={{ duration: 0.18 }}
         className="card-glass p-4 press cursor-pointer relative z-10"
+        role="button"
+        tabIndex={0}
         onClick={onOpen}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onOpen() }}
       >
         <div className="flex items-start justify-between gap-2">
           <p className="font-semibold text-sm text-text-primary leading-snug truncate">{note.title || 'Untitled'}</p>
