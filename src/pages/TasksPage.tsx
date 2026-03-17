@@ -288,12 +288,14 @@ export function TasksPage() {
       )}
 
       {/* FAB */}
-      <button
-        onClick={() => setCreateSheetOpen(true)}
-        className="fixed bottom-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] right-5 lg:bottom-8 w-14 h-14 bg-accent hover:bg-accent-hover text-white rounded-full shadow-lg flex items-center justify-center z-30 transition-colors"
-      >
-        <Plus size={24} />
-      </button>
+      {!isDesktop && (
+        <button
+          onClick={() => setCreateSheetOpen(true)}
+          className="fixed bottom-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] right-5 lg:bottom-8 w-14 h-14 bg-accent hover:bg-accent-hover text-white rounded-full shadow-lg flex items-center justify-center z-30 transition-colors"
+        >
+          <Plus size={24} />
+        </button>
+      )}
 
       {/* Create sheet */}
       <PlatformSheet isOpen={createSheetOpen} onClose={() => setCreateSheetOpen(false)} title="New Task">
