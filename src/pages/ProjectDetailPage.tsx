@@ -9,7 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { BottomSheet } from '@/components/shared/BottomSheet'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
-import type { Project, Milestone, Task } from '@/types/database'
+import type { Project, Task } from '@/types/database'
 
 const statusConfig: Record<string, { label: string; className: string }> = {
   planning: { label: 'Planning', className: 'bg-blue-500/20 text-blue-400' },
@@ -25,9 +25,7 @@ export function ProjectDetailPage() {
   const qc = useQueryClient()
   const userId = user?.id
 
-  const [milestoneSheetOpen, setMilestoneSheetOpen] = useState(false)
   const [taskSheetOpen, setTaskSheetOpen] = useState(false)
-  const [milestoneForm, setMilestoneForm] = useState({ title: '', due_date: '' })
   const [taskForm, setTaskForm] = useState({ title: '', priority: '' as Task['priority'] | '', due_date: '' })
 
   const { data: project, isLoading: loadingProject } = useQuery({
@@ -40,16 +38,6 @@ export function ProjectDetailPage() {
     enabled: !!id,
   })
 
-  const { data: milestones, isLoading: loadingMilestones } = useQuery({
-    queryKey: ['milestones', id],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('ceo_project_milestones').select('*').eq('project_id', id!).order('sort_order')
-      if (error) throw error
-      return (data ?? []) as Milestone[]
-    },
-    enabled: !!id,
-  })
-
   const { data: tasks, isLoading: loadingTasks } = useQuery({
     queryKey: ['project-tasks', id],
     queryFn: async () => {
@@ -58,29 +46,6 @@ export function ProjectDetailPage() {
       return (data ?? []) as Task[]
     },
     enabled: !!id,
-  })
-
-  const toggleMilestone = useMutation({
-    mutationFn: async ({ milestoneId, completed }: { milestoneId: string; completed: boolean }) => {
-      const { error } = await supabase.from('ceo_project_milestones').update({ is_completed: completed, completed_at: completed ? new Date().toISOString() : null }).eq('id', milestoneId)
-      if (error) throw error
-    },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['milestones', id] }),
-    onError: () => toast.error('Failed to update milestone'),
-  })
-
-  const createMilestone = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase.from('ceo_project_milestones').insert({ user_id: userId!, project_id: id!, title: milestoneForm.title, due_date: milestoneForm.due_date || null, is_completed: false, sort_order: 9999 })
-      if (error) throw error
-    },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['milestones', id] })
-      toast.success('Milestone added')
-      setMilestoneSheetOpen(false)
-      setMilestoneForm({ title: '', due_date: '' })
-    },
-    onError: () => toast.error('Failed to add milestone'),
   })
 
   const createTask = useMutation({
@@ -165,39 +130,6 @@ export function ProjectDetailPage() {
 
       <div className="mb-6">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Milestones</h2>
-          <button onClick={() => setMilestoneSheetOpen(true)} className="text-accent text-xs flex items-center gap-1 hover:opacity-80">
-            <Plus size={14} /> Add
-          </button>
-        </div>
-        {loadingMilestones ? (
-          <SkeletonCard />
-        ) : milestones && milestones.length > 0 ? (
-          <div className="space-y-2">
-            {milestones.map(m => (
-              <div key={m.id} className="card-glass p-3 flex items-center gap-3">
-                <button
-                  onClick={() => toggleMilestone.mutate({ milestoneId: m.id, completed: !m.is_completed })}
-                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${m.is_completed ? 'bg-accent border-accent' : 'border-white/30'}`}
-                >
-                  {m.is_completed && <Check size={10} strokeWidth={3} className="text-white" />}
-                </button>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm ${m.is_completed ? 'line-through text-text-tertiary' : 'text-text-primary'}`}>{m.title}</p>
-                  {m.due_date && (
-                    <p className="text-[10px] text-text-tertiary">{format(parseISO(m.due_date), 'MMM d, yyyy')}</p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-text-tertiary text-sm">No milestones yet.</p>
-        )}
-      </div>
-
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-3">
           <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Tasks</h2>
           <button onClick={() => setTaskSheetOpen(true)} className="text-accent text-xs flex items-center gap-1 hover:opacity-80">
             <Plus size={14} /> Add Task
@@ -231,16 +163,6 @@ export function ProjectDetailPage() {
           <p className="text-text-tertiary text-sm">No tasks linked to this project.</p>
         )}
       </div>
-
-      <BottomSheet isOpen={milestoneSheetOpen} onClose={() => setMilestoneSheetOpen(false)} title="Add Milestone">
-        <div className="space-y-3 pb-4">
-          <input type="text" placeholder="Milestone title" value={milestoneForm.title} onChange={e => setMilestoneForm(f => ({ ...f, title: e.target.value }))} className={inputClass} />
-          <input type="date" value={milestoneForm.due_date} onChange={e => setMilestoneForm(f => ({ ...f, due_date: e.target.value }))} className={inputClass} />
-          <button onClick={() => createMilestone.mutate()} disabled={!milestoneForm.title || createMilestone.isPending} className="w-full bg-accent hover:bg-accent-hover text-white rounded-btn py-3 font-semibold text-sm transition-colors disabled:opacity-60">
-            {createMilestone.isPending ? 'Adding...' : 'Add Milestone'}
-          </button>
-        </div>
-      </BottomSheet>
 
       <BottomSheet isOpen={taskSheetOpen} onClose={() => setTaskSheetOpen(false)} title="Add Task to Project">
         <div className="space-y-3 pb-4">

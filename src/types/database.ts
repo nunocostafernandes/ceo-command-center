@@ -22,6 +22,7 @@ export interface Task {
   sort_order: number
   project_id: string | null
   milestone_id: string | null
+  assigned_to: string | null
   created_at: string
   updated_at: string
 }

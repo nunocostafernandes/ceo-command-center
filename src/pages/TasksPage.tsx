@@ -19,6 +19,7 @@ interface TaskForm {
   due_date: string
   list_name: string
   description: string
+  assigned_to: string
 }
 
 export function TasksPage() {
@@ -30,7 +31,7 @@ export function TasksPage() {
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [inlineInputs, setInlineInputs] = useState<Record<string, string>>({})
-  const [form, setForm] = useState<TaskForm>({ title: '', priority: null, due_date: '', list_name: 'Inbox', description: '' })
+  const [form, setForm] = useState<TaskForm>({ title: '', priority: null, due_date: '', list_name: 'Inbox', description: '', assigned_to: '' })
 
   const { data: tasks, isLoading } = useQuery({
     queryKey: ['tasks', userId],
@@ -76,7 +77,7 @@ export function TasksPage() {
       void qc.invalidateQueries({ queryKey: ['kpi-tasks', userId] })
       toast.success('Task created')
       setSheetOpen(false)
-      setForm({ title: '', priority: null, due_date: '', list_name: 'Inbox', description: '' })
+      setForm({ title: '', priority: null, due_date: '', list_name: 'Inbox', description: '', assigned_to: '' })
     },
     onError: () => toast.error('Failed to create task'),
   })
@@ -247,8 +248,9 @@ export function TasksPage() {
             <option value="low">Low</option>
           </select>
           <input type="date" value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} className={inputClass} />
+          <input type="text" placeholder="Assign to (optional)" value={form.assigned_to} onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))} className={inputClass} />
           <button
-            onClick={() => createMutation.mutate({ user_id: userId!, title: form.title, description: form.description || null, priority: form.priority, due_date: form.due_date || null, list_name: form.list_name || 'Inbox', is_completed: false, sort_order: 9999, project_id: null, milestone_id: null })}
+            onClick={() => createMutation.mutate({ user_id: userId!, title: form.title, description: form.description || null, priority: form.priority, due_date: form.due_date || null, list_name: form.list_name || 'Inbox', is_completed: false, sort_order: 9999, project_id: null, milestone_id: null, assigned_to: form.assigned_to || null })}
             disabled={!form.title || createMutation.isPending}
             className="w-full bg-accent hover:bg-accent-hover text-white rounded-btn py-3 font-semibold text-sm transition-colors disabled:opacity-60"
           >
@@ -300,11 +302,16 @@ function TaskItem({ task, onToggle, onDelete }: TaskItemProps) {
           <p className={`text-sm ${task.is_completed ? 'line-through text-text-tertiary' : 'text-text-primary'}`}>
             {task.title}
           </p>
-          {task.due_date && (
-            <p className={`text-xs mt-0.5 ${isOverdue ? 'text-status-error' : isDueToday ? 'text-status-warning' : 'text-text-tertiary'}`}>
-              {isToday(parseISO(task.due_date)) ? 'Today' : format(parseISO(task.due_date), 'MMM d')}
-            </p>
-          )}
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            {task.due_date && (
+              <p className={`text-xs ${isOverdue ? 'text-status-error' : isDueToday ? 'text-status-warning' : 'text-text-tertiary'}`}>
+                {isToday(parseISO(task.due_date)) ? 'Today' : format(parseISO(task.due_date), 'MMM d')}
+              </p>
+            )}
+            {task.assigned_to && (
+              <p className="text-xs text-text-tertiary">→ {task.assigned_to}</p>
+            )}
+          </div>
         </div>
 
         {task.priority && (
