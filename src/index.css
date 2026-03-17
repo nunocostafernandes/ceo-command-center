@@ -12,7 +12,8 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-top: env(safe-area-inset-top, 0px);
   --tab-bar-height: 68px;
-  --sidebar-width: 220px;
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 60px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -63,6 +64,31 @@ body {
   .inset-bottom {
     padding-bottom: var(--safe-bottom);
   }
+}
+
+/* ── Desktop hover utilities (pointer device only) ──────────────────────── */
+@media (hover: hover) and (pointer: fine) {
+  .hover-lift:hover {
+    transform: translateY(-1px);
+    transition: transform 150ms ease, box-shadow 150ms ease;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .hover-bg:hover {
+    background: rgba(255,255,255,0.06) !important;
+  }
+  .hover-reveal .reveal-on-hover {
+    opacity: 0;
+    transition: opacity 150ms ease;
+  }
+  .hover-reveal:hover .reveal-on-hover {
+    opacity: 1;
+  }
+}
+
+/* Touch devices: disable spurious hover states */
+@media (hover: none) {
+  .hover-lift:hover { transform: none; }
+  .hover-bg:hover { background: inherit !important; }
 }
 
 /* ── Tiptap rich text editor ─────────────────────────────────────────────── */
