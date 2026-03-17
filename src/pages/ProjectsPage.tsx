@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Plus } from 'lucide-react'
+import { Plus, Check, FolderKanban } from 'lucide-react'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
+import { format, parseISO } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePlatform } from '@/hooks/usePlatform'
 import { PlatformSheet } from '@/components/shared/PlatformSheet'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
-import type { Project } from '@/types/database'
+import type { Project, Task } from '@/types/database'
 
 type StatusFilter = 'all' | 'active' | 'on_hold' | 'completed'
 
@@ -29,6 +30,186 @@ interface ProjectForm {
   color: string
 }
 
+// ── Desktop project detail panel ──────────────────────────────────────────────
+
+function DesktopProjectDetail({ projectId }: { projectId: string }) {
+  const { user } = useAuth()
+  const qc = useQueryClient()
+  const userId = user?.id
+
+  const [taskSheetOpen, setTaskSheetOpen] = useState(false)
+  const [taskForm, setTaskForm] = useState({ title: '', priority: '' as Task['priority'] | '', due_date: '' })
+
+  const { data: project, isLoading: loadingProject } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('ceo_projects').select('*').eq('id', projectId).single()
+      if (error) throw error
+      return data as Project
+    },
+    enabled: !!projectId,
+  })
+
+  const { data: tasks, isLoading: loadingTasks } = useQuery({
+    queryKey: ['project-tasks', projectId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('ceo_tasks').select('*').eq('project_id', projectId).order('sort_order')
+      if (error) throw error
+      return (data ?? []) as Task[]
+    },
+    enabled: !!projectId,
+  })
+
+  const createTask = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from('ceo_tasks').insert({
+        user_id: userId!,
+        project_id: projectId,
+        title: taskForm.title,
+        priority: taskForm.priority || null,
+        due_date: taskForm.due_date || null,
+        is_completed: false,
+        sort_order: 9999,
+      })
+      if (error) throw error
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['project-tasks', projectId] })
+      void qc.invalidateQueries({ queryKey: ['tasks', userId] })
+      toast.success('Task added')
+      setTaskSheetOpen(false)
+      setTaskForm({ title: '', priority: '', due_date: '' })
+    },
+    onError: () => toast.error('Failed to add task'),
+  })
+
+  const toggleTask = useMutation({
+    mutationFn: async ({ taskId, completed }: { taskId: string; completed: boolean }) => {
+      const { error } = await supabase.from('ceo_tasks').update({ is_completed: completed, completed_at: completed ? new Date().toISOString() : null }).eq('id', taskId)
+      if (error) throw error
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['project-tasks', projectId] }),
+    onError: () => toast.error('Failed to update task'),
+  })
+
+  const completedTasks = (tasks ?? []).filter(t => t.is_completed).length
+  const totalTasks = (tasks ?? []).length
+  const progress = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0
+  const statusInfo = project ? (statusConfig[project.status] ?? statusConfig.planning) : null
+  const inputClass = 'bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm w-full focus:outline-none focus:border-accent text-text-primary placeholder-text-tertiary'
+
+  if (loadingProject) {
+    return <div className="p-6"><SkeletonCard /></div>
+  }
+
+  if (!project) return null
+
+  return (
+    <div className="px-6 py-6">
+      {/* Project header */}
+      <div className="mb-6">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="w-3 h-3 rounded-full flex-shrink-0 mt-1.5" style={{ backgroundColor: project.color ?? '#5E6AD2' }} />
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-xl font-bold text-text-primary">{project.title}</h2>
+              {statusInfo && (
+                <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${statusInfo.className}`}>
+                  {statusInfo.label}
+                </span>
+              )}
+            </div>
+            {project.description && (
+              <p className="text-sm text-text-secondary mt-1">{project.description}</p>
+            )}
+          </div>
+        </div>
+
+        {totalTasks > 0 && (
+          <div className="mt-3">
+            <div className="flex justify-between text-xs text-text-tertiary mb-1">
+              <span>{completedTasks}/{totalTasks} tasks completed</span>
+              <span>{Math.round(progress)}%</span>
+            </div>
+            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <motion.div
+                className="h-1.5 bg-accent rounded-full"
+                initial={{ width: 0 }}
+                animate={{ width: `${progress}%` }}
+                transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Tasks */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Tasks</h3>
+          <button
+            onClick={() => setTaskSheetOpen(true)}
+            className="text-accent text-xs flex items-center gap-1 hover:opacity-80"
+          >
+            <Plus size={14} /> Add Task
+          </button>
+        </div>
+
+        {loadingTasks ? (
+          <SkeletonCard />
+        ) : tasks && tasks.length > 0 ? (
+          <div className="space-y-2">
+            {tasks.map(task => (
+              <div key={task.id} className="card-glass p-3 flex items-center gap-3">
+                <button
+                  onClick={() => toggleTask.mutate({ taskId: task.id, completed: !task.is_completed })}
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${task.is_completed ? 'bg-accent border-accent' : 'border-white/30'}`}
+                >
+                  {task.is_completed && <Check size={10} strokeWidth={3} className="text-white" />}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm ${task.is_completed ? 'line-through text-text-tertiary' : 'text-text-primary'}`}>{task.title}</p>
+                  {task.due_date && (
+                    <p className="text-[10px] text-text-tertiary">{format(parseISO(task.due_date), 'MMM d')}</p>
+                  )}
+                </div>
+                {task.priority && (
+                  <span className="text-[10px] text-text-tertiary">{task.priority}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-text-tertiary text-sm">No tasks linked to this project.</p>
+        )}
+      </div>
+
+      <PlatformSheet isOpen={taskSheetOpen} onClose={() => setTaskSheetOpen(false)} title="Add Task to Project">
+        <div className="space-y-3 pb-4">
+          <input type="text" placeholder="Task title" value={taskForm.title} onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))} className={inputClass} />
+          <select value={taskForm.priority ?? ''} onChange={e => setTaskForm(f => ({ ...f, priority: e.target.value as Task['priority'] | '' }))} className={inputClass}>
+            <option value="">Priority (none)</option>
+            <option value="urgent">Urgent</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+          <input type="date" value={taskForm.due_date} onChange={e => setTaskForm(f => ({ ...f, due_date: e.target.value }))} className={inputClass} />
+          <button
+            onClick={() => createTask.mutate()}
+            disabled={!taskForm.title || createTask.isPending}
+            className="w-full bg-accent hover:bg-accent-hover text-white rounded-btn py-3 font-semibold text-sm transition-colors disabled:opacity-60"
+          >
+            {createTask.isPending ? 'Adding...' : 'Add Task'}
+          </button>
+        </div>
+      </PlatformSheet>
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 export function ProjectsPage() {
   const { user } = useAuth()
   const { isDesktop } = usePlatform()
@@ -39,6 +220,7 @@ export function ProjectsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [form, setForm] = useState<ProjectForm>({ title: '', description: '', status: 'planning', color: '#5E6AD2' })
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
 
   const { data: projects, isLoading } = useQuery({
     queryKey: ['projects', userId],
@@ -96,8 +278,9 @@ export function ProjectsPage() {
   const inputClass = 'bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm w-full focus:outline-none focus:border-accent text-text-primary placeholder-text-tertiary'
 
   return (
-    <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto">
-      <div className="mb-5">
+    <div className={isDesktop ? 'flex flex-col h-full' : 'px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto'}>
+      {/* Header + filter pills */}
+      <div className={`mb-5 ${isDesktop ? 'px-4 pt-[calc(var(--safe-top)+16px)]' : ''}`}>
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold text-text-primary">Projects</h1>
           {isDesktop && (
@@ -126,57 +309,122 @@ export function ProjectsPage() {
       </div>
 
       {isLoading ? (
-        <div className="space-y-3"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
-      ) : filtered.length === 0 ? (
-        <p className="text-text-tertiary text-sm">No projects. Tap + to create one.</p>
-      ) : (
-        <AnimatePresence mode="popLayout">
-          {filtered.map(project => {
-            const counts = taskCounts?.[project.id]
-            const progress = counts && counts.total > 0 ? (counts.completed / counts.total) * 100 : 0
-            const statusInfo = statusConfig[project.status] ?? statusConfig.planning
+        <div className={`space-y-3 ${isDesktop ? 'px-4' : ''}`}><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
+      ) : isDesktop ? (
+        // ── Desktop: split panel ──────────────────────────────────────────
+        <div className="flex flex-row h-[calc(100vh-180px)] overflow-hidden">
+          {/* Left panel: compact project list */}
+          <div className="w-[320px] flex-shrink-0 border-r border-white/[0.08] overflow-y-auto px-3 py-4">
+            {filtered.length === 0 ? (
+              <p className="text-text-tertiary text-sm px-2">No projects.</p>
+            ) : (
+              filtered.map(project => {
+                const counts = taskCounts?.[project.id]
+                const progress = counts && counts.total > 0 ? (counts.completed / counts.total) * 100 : 0
+                const statusInfo = statusConfig[project.status] ?? statusConfig.planning
+                const isSelected = selectedProjectId === project.id
 
-            return (
-              <motion.div
-                key={project.id}
-                layout
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.2 }}
-                className="card-glass p-5 mb-3 press"
-                style={{ borderLeftColor: project.color ?? '#5E6AD2', borderLeftWidth: '3px' }}
-                onClick={() => navigate(`/projects/${project.id}`)}
-              >
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <p className="font-semibold text-sm text-text-primary">{project.title}</p>
-                  <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${statusInfo.className}`}>
-                    {statusInfo.label}
-                  </span>
-                </div>
-                {project.description && (
-                  <p className="text-xs text-text-secondary mb-3 line-clamp-2">{project.description}</p>
-                )}
-                {counts && counts.total > 0 && (
-                  <div className="mt-2">
-                    <div className="flex justify-between text-[10px] text-text-tertiary mb-1">
-                      <span>{counts.completed}/{counts.total} tasks</span>
-                      <span>{Math.round(progress)}%</span>
+                return (
+                  <button
+                    key={project.id}
+                    onClick={() => setSelectedProjectId(project.id)}
+                    className={`w-full text-left px-3 py-3 rounded-xl mb-1 transition-colors border-l-2 ${
+                      isSelected
+                        ? 'bg-accent/10 border-accent'
+                        : 'border-transparent hover:bg-white/5'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: project.color ?? '#5E6AD2' }} />
+                        <p className="font-medium text-sm text-text-primary truncate">{project.title}</p>
+                      </div>
+                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${statusInfo.className}`}>
+                        {statusInfo.label}
+                      </span>
                     </div>
-                    <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                      <motion.div
-                        className="h-1.5 bg-accent rounded-full"
-                        initial={{ width: 0 }}
-                        animate={{ width: `${progress}%` }}
-                        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                      />
-                    </div>
+                    {counts && counts.total > 0 && (
+                      <div className="mt-1.5 ml-4">
+                        <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                          <div
+                            className="h-1 bg-accent rounded-full transition-all"
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+                        <p className="text-[10px] text-text-tertiary mt-0.5">{counts.completed}/{counts.total} tasks</p>
+                      </div>
+                    )}
+                  </button>
+                )
+              })
+            )}
+          </div>
+
+          {/* Right panel: project detail */}
+          <div className="flex-1 overflow-y-auto">
+            {selectedProjectId ? (
+              <DesktopProjectDetail projectId={selectedProjectId} />
+            ) : (
+              <div className="flex-1 h-full flex flex-col items-center justify-center gap-3 text-text-tertiary">
+                <FolderKanban size={40} strokeWidth={1.5} />
+                <p className="text-sm">Select a project</p>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        // ── Mobile: card list ──────────────────────────────────────────────
+        filtered.length === 0 ? (
+          <p className="text-text-tertiary text-sm">No projects. Tap + to create one.</p>
+        ) : (
+          <AnimatePresence mode="popLayout">
+            {filtered.map(project => {
+              const counts = taskCounts?.[project.id]
+              const progress = counts && counts.total > 0 ? (counts.completed / counts.total) * 100 : 0
+              const statusInfo = statusConfig[project.status] ?? statusConfig.planning
+
+              return (
+                <motion.div
+                  key={project.id}
+                  layout
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.2 }}
+                  className="card-glass p-5 mb-3 press"
+                  style={{ borderLeftColor: project.color ?? '#5E6AD2', borderLeftWidth: '3px' }}
+                  onClick={() => navigate(`/projects/${project.id}`)}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <p className="font-semibold text-sm text-text-primary">{project.title}</p>
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${statusInfo.className}`}>
+                      {statusInfo.label}
+                    </span>
                   </div>
-                )}
-              </motion.div>
-            )
-          })}
-        </AnimatePresence>
+                  {project.description && (
+                    <p className="text-xs text-text-secondary mb-3 line-clamp-2">{project.description}</p>
+                  )}
+                  {counts && counts.total > 0 && (
+                    <div className="mt-2">
+                      <div className="flex justify-between text-[10px] text-text-tertiary mb-1">
+                        <span>{counts.completed}/{counts.total} tasks</span>
+                        <span>{Math.round(progress)}%</span>
+                      </div>
+                      <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <motion.div
+                          className="h-1.5 bg-accent rounded-full"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${progress}%` }}
+                          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              )
+            })}
+          </AnimatePresence>
+        )
       )}
 
       {!isDesktop && (

@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Plus, Check, Trash2 } from 'lucide-react'
+import { Plus, Check, Trash2, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { format, isToday, isPast, parseISO } from 'date-fns'
 import { supabase } from '@/lib/supabase'
@@ -24,6 +24,119 @@ interface TaskForm {
 }
 
 const emptyForm: TaskForm = { title: '', priority: null, due_date: '', list_name: 'Inbox', description: '', assigned_to: '' }
+
+// ── Desktop sub-components ────────────────────────────────────────────────────
+
+interface DesktopTaskRowProps {
+  task: Task
+  onComplete: (task: Task) => void
+  onEdit: (task: Task) => void
+  onDelete: (id: string) => void
+}
+
+function DesktopTaskRow({ task, onComplete, onEdit, onDelete }: DesktopTaskRowProps) {
+  return (
+    <div className="hover-reveal group flex items-start gap-2.5 px-2 py-2 rounded-xl hover-bg transition-colors cursor-default">
+      {/* Checkbox */}
+      <button
+        onClick={() => onComplete(task)}
+        className="w-5 h-5 mt-0.5 flex-shrink-0 rounded-full border-2 flex items-center justify-center transition-colors"
+        style={{
+          borderColor: task.is_completed ? '#5E6AD2' : 'rgba(255,255,255,0.3)',
+          background: task.is_completed ? '#5E6AD2' : 'transparent',
+        }}
+      >
+        {task.is_completed && <Check size={10} strokeWidth={3} color="white" />}
+      </button>
+      {/* Title */}
+      <span className={`flex-1 text-sm leading-snug ${task.is_completed ? 'line-through text-text-tertiary' : 'text-text-primary'}`}>
+        {task.title}
+      </span>
+      {/* Actions — reveal on hover */}
+      <div className="reveal-on-hover flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={() => onEdit(task)}
+          className="p-1 rounded-lg hover:bg-white/10 text-text-tertiary hover:text-text-primary transition-colors"
+        >
+          <Pencil size={13} />
+        </button>
+        <button
+          onClick={() => onDelete(task.id)}
+          className="p-1 rounded-lg hover:bg-status-error/20 text-text-tertiary hover:text-status-error transition-colors"
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+interface TaskColumnProps {
+  listName: string
+  tasks: Task[]
+  onComplete: (task: Task) => void
+  onEdit: (task: Task) => void
+  onDelete: (id: string) => void
+  onAddTask: (listName: string, title: string) => void
+}
+
+function TaskColumn({ listName, tasks, onComplete, onEdit, onDelete, onAddTask }: TaskColumnProps) {
+  const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [adding, setAdding] = useState(false)
+
+  return (
+    <div className="w-[280px] flex-shrink-0 flex flex-col bg-white/[0.02] rounded-2xl border border-white/[0.06] overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
+        <span className="text-[11px] font-semibold text-text-tertiary uppercase tracking-widest">{listName}</span>
+        <span className="text-[11px] text-text-tertiary bg-white/5 px-2 py-0.5 rounded-full">{tasks.length}</span>
+      </div>
+      {/* Tasks */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-1" style={{ maxHeight: 'calc(100vh - 280px)' }}>
+        {tasks.map(task => (
+          <DesktopTaskRow key={task.id} task={task} onComplete={onComplete} onEdit={onEdit} onDelete={onDelete} />
+        ))}
+        {tasks.length === 0 && (
+          <p className="text-text-tertiary text-xs text-center py-6 opacity-50">No tasks</p>
+        )}
+      </div>
+      {/* Add task footer */}
+      <div className="border-t border-white/[0.06] p-2">
+        {adding ? (
+          <form
+            onSubmit={e => {
+              e.preventDefault()
+              if (newTaskTitle.trim()) {
+                onAddTask(listName, newTaskTitle.trim())
+                setNewTaskTitle('')
+                setAdding(false)
+              }
+            }}
+          >
+            <input
+              autoFocus
+              value={newTaskTitle}
+              onChange={e => setNewTaskTitle(e.target.value)}
+              onBlur={() => { if (!newTaskTitle.trim()) setAdding(false) }}
+              placeholder="Task title..."
+              className="w-full bg-white/5 border border-accent/40 rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-tertiary focus:outline-none"
+            />
+          </form>
+        ) : (
+          <button
+            onClick={() => setAdding(true)}
+            className="flex items-center gap-1.5 w-full px-2 py-2 text-xs text-text-tertiary hover:text-text-secondary transition-colors rounded-lg hover:bg-white/5"
+          >
+            <Plus size={14} />
+            Add task
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export function TasksPage() {
   const { user } = useAuth()
@@ -155,6 +268,10 @@ export function TasksPage() {
     })
   }
 
+  const handleAddQuickTask = useCallback((listName: string, title: string) => {
+    createMutation.mutate({ user_id: userId!, title, list_name: listName, is_completed: false, sort_order: 9999, priority: null })
+  }, [createMutation, userId])
+
   const filtered = (tasks ?? []).filter(t => {
     if (statusFilter === 'active' && t.is_completed) return false
     if (statusFilter === 'completed' && !t.is_completed) return false
@@ -168,6 +285,15 @@ export function TasksPage() {
     if (!grouped[list]) grouped[list] = []
     grouped[list].push(t)
   })
+
+  // Desktop column layout data
+  const tasksByList = filtered.reduce((acc, task) => {
+    const list = task.list_name ?? 'Inbox'
+    if (!acc[list]) acc[list] = []
+    acc[list].push(task)
+    return acc
+  }, {} as Record<string, Task[]>)
+  const listNames = Object.keys(tasksByList)
 
   const inputClass = 'bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm w-full focus:outline-none focus:border-accent text-text-primary placeholder-text-tertiary'
 
@@ -186,8 +312,8 @@ export function TasksPage() {
   ]
 
   return (
-    <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto">
-      <div className="mb-5">
+    <div className={isDesktop ? 'pt-[calc(var(--safe-top)+16px)] pb-4' : 'px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto'}>
+      <div className={`mb-5 ${isDesktop ? 'px-4' : ''}`}>
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold text-text-primary">Tasks</h1>
           {isDesktop && (
@@ -229,8 +355,28 @@ export function TasksPage() {
       </div>
 
       {isLoading ? (
-        <div className="space-y-3"><SkeletonCard /><SkeletonCard /></div>
+        <div className={`space-y-3 ${isDesktop ? 'px-4' : ''}`}><SkeletonCard /><SkeletonCard /></div>
+      ) : isDesktop ? (
+        // ── Desktop: horizontal column layout ──────────────────────────────
+        listNames.length === 0 ? (
+          <p className="text-text-tertiary text-sm px-4">No tasks.</p>
+        ) : (
+          <div className="flex flex-row gap-4 overflow-x-auto pb-4 px-4 pt-4">
+            {listNames.map(listName => (
+              <TaskColumn
+                key={listName}
+                listName={listName}
+                tasks={tasksByList[listName]}
+                onComplete={task => completeMutation.mutate({ id: task.id, completed: !task.is_completed })}
+                onEdit={openEdit}
+                onDelete={id => deleteMutation.mutate(id)}
+                onAddTask={handleAddQuickTask}
+              />
+            ))}
+          </div>
+        )
       ) : (
+        // ── Mobile: flat grouped list ───────────────────────────────────────
         Object.entries(grouped).length === 0 ? (
           <p className="text-text-tertiary text-sm">No tasks. Tap + to add one.</p>
         ) : (

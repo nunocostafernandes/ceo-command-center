@@ -111,141 +111,187 @@ export function CalendarPage() {
     return { hasTasks, hasReminders }
   }
 
+  const openReminderSheet = () => {
+    const dateStr = format(selectedDay, "yyyy-MM-dd'T'HH:mm")
+    setReminderForm({ title: '', remind_at: dateStr })
+    setReminderSheetOpen(true)
+  }
+
   const inputClass = 'bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm w-full focus:outline-none focus:border-accent text-text-primary placeholder-text-tertiary'
 
-  return (
-    <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-5">
-        <h1 className="text-2xl font-bold text-text-primary">Calendar</h1>
-        <div className="flex items-center gap-2">
-          {isDesktop && (
-            <button
-              onClick={() => {
-                const dateStr = format(selectedDay, "yyyy-MM-dd'T'HH:mm")
-                setReminderForm({ title: '', remind_at: dateStr })
-                setReminderSheetOpen(true)
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition-colors"
+  // ── Shared calendar grid ─────────────────────────────────────────────────
+  const calendarGrid = (
+    <div className="card-glass p-4">
+      <div className="flex items-center justify-between mb-4">
+        <button
+          onClick={() => setCurrentMonth(m => subMonths(m, 1))}
+          className="p-1.5 rounded-lg hover:bg-white/10 transition-colors press"
+        >
+          <ChevronLeft size={18} className="text-text-secondary" />
+        </button>
+        <p className="text-sm font-semibold text-text-primary">{format(currentMonth, 'MMMM yyyy')}</p>
+        <button
+          onClick={() => setCurrentMonth(m => addMonths(m, 1))}
+          className="p-1.5 rounded-lg hover:bg-white/10 transition-colors press"
+        >
+          <ChevronRight size={18} className="text-text-secondary" />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-7 mb-2">
+        {DAY_LABELS.map(d => (
+          <div key={d} className="text-center text-[10px] font-semibold text-text-tertiary py-1">{d}</div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-y-1">
+        {calDays.map(day => {
+          const { hasTasks, hasReminders } = getDotsForDay(day)
+          const inMonth = isSameMonth(day, currentMonth)
+          const isSelected = isSameDay(day, selectedDay)
+          const isTodayDay = isToday(day)
+
+          return (
+            <motion.button
+              key={day.toISOString()}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setSelectedDay(day)}
+              className={`relative flex flex-col items-center py-1 rounded-xl transition-colors ${
+                isDesktop ? 'min-h-[80px] justify-start pt-2' : ''
+              } ${
+                isSelected ? 'bg-accent' : isTodayDay ? 'bg-white text-[#020203]' : 'hover:bg-white/5'
+              }`}
             >
-              <Plus size={16} />
-              Add Reminder
-            </button>
-          )}
-          <button
-            onClick={() => setSelectedDay(new Date())}
-            className="text-xs text-accent font-medium px-3 py-1.5 rounded-btn bg-accent/10 hover:bg-accent/20 transition-colors"
-          >
-            Today
-          </button>
-        </div>
+              <span className={`text-xs font-medium ${
+                isSelected ? 'text-white' : isTodayDay ? 'text-[#020203]' : inMonth ? 'text-text-primary' : 'text-text-tertiary'
+              }`}>
+                {format(day, 'd')}
+              </span>
+              <div className="flex gap-0.5 mt-0.5 h-1">
+                {hasTasks && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-accent'}`} />}
+                {hasReminders && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-status-warning'}`} />}
+              </div>
+            </motion.button>
+          )
+        })}
+      </div>
+    </div>
+  )
+
+  // ── Shared day detail content ────────────────────────────────────────────
+  const dayDetailContent = (
+    <>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
+          {format(selectedDay, 'EEEE, MMMM d')}
+        </h2>
+        <button
+          onClick={openReminderSheet}
+          className="text-xs text-accent flex items-center gap-1 hover:opacity-80"
+        >
+          <Plus size={14} />Add Reminder
+        </button>
       </div>
 
-      <div className="card-glass p-4 mb-5">
-        <div className="flex items-center justify-between mb-4">
-          <button
-            onClick={() => setCurrentMonth(m => subMonths(m, 1))}
-            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors press"
-          >
-            <ChevronLeft size={18} className="text-text-secondary" />
-          </button>
-          <p className="text-sm font-semibold text-text-primary">{format(currentMonth, 'MMMM yyyy')}</p>
-          <button
-            onClick={() => setCurrentMonth(m => addMonths(m, 1))}
-            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors press"
-          >
-            <ChevronRight size={18} className="text-text-secondary" />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-7 mb-2">
-          {DAY_LABELS.map(d => (
-            <div key={d} className="text-center text-[10px] font-semibold text-text-tertiary py-1">{d}</div>
+      {dayTasks.length === 0 && dayReminders.length === 0 ? (
+        <p className="text-text-tertiary text-sm">Nothing scheduled.</p>
+      ) : (
+        <div className="space-y-2">
+          {dayReminders.map(r => (
+            <div key={r.id} className={`card-glass p-3 flex items-center gap-3 ${r.is_dismissed ? 'opacity-50' : ''}`}>
+              <Bell size={16} className="text-status-warning flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm text-text-primary ${r.is_dismissed ? 'line-through' : ''}`}>{r.title}</p>
+                <p className="text-[10px] text-text-tertiary">{format(parseISO(r.remind_at), 'h:mm a')}</p>
+              </div>
+              {!r.is_dismissed && (
+                <button
+                  onClick={() => dismissReminder.mutate(r.id)}
+                  className="p-1 rounded-lg hover:bg-white/10 transition-colors"
+                >
+                  <Check size={14} className="text-text-tertiary" />
+                </button>
+              )}
+            </div>
           ))}
-        </div>
-
-        <div className="grid grid-cols-7 gap-y-1">
-          {calDays.map(day => {
-            const { hasTasks, hasReminders } = getDotsForDay(day)
-            const inMonth = isSameMonth(day, currentMonth)
-            const isSelected = isSameDay(day, selectedDay)
-            const isTodayDay = isToday(day)
-
-            return (
-              <motion.button
-                key={day.toISOString()}
-                whileTap={{ scale: 0.9 }}
-                onClick={() => setSelectedDay(day)}
-                className={`relative flex flex-col items-center py-1 rounded-xl transition-colors ${
-                  isSelected ? 'bg-accent' : isTodayDay ? 'bg-white text-[#020203]' : 'hover:bg-white/5'
-                }`}
-              >
-                <span className={`text-xs font-medium ${
-                  isSelected ? 'text-white' : isTodayDay ? 'text-[#020203]' : inMonth ? 'text-text-primary' : 'text-text-tertiary'
-                }`}>
-                  {format(day, 'd')}
-                </span>
-                <div className="flex gap-0.5 mt-0.5 h-1">
-                  {hasTasks && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-accent'}`} />}
-                  {hasReminders && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-status-warning'}`} />}
-                </div>
-              </motion.button>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
-            {format(selectedDay, 'EEEE, MMMM d')}
-          </h2>
-          <button
-            onClick={() => {
-              const dateStr = format(selectedDay, "yyyy-MM-dd'T'HH:mm")
-              setReminderForm({ title: '', remind_at: dateStr })
-              setReminderSheetOpen(true)
-            }}
-            className="text-xs text-accent flex items-center gap-1 hover:opacity-80"
-          >
-            <Plus size={14} />Add Reminder
-          </button>
-        </div>
-
-        {dayTasks.length === 0 && dayReminders.length === 0 ? (
-          <p className="text-text-tertiary text-sm">Nothing scheduled.</p>
-        ) : (
-          <div className="space-y-2">
-            {dayReminders.map(r => (
-              <div key={r.id} className={`card-glass p-3 flex items-center gap-3 ${r.is_dismissed ? 'opacity-50' : ''}`}>
-                <Bell size={16} className="text-status-warning flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm text-text-primary ${r.is_dismissed ? 'line-through' : ''}`}>{r.title}</p>
-                  <p className="text-[10px] text-text-tertiary">{format(parseISO(r.remind_at), 'h:mm a')}</p>
-                </div>
-                {!r.is_dismissed && (
-                  <button
-                    onClick={() => dismissReminder.mutate(r.id)}
-                    className="p-1 rounded-lg hover:bg-white/10 transition-colors"
-                  >
-                    <Check size={14} className="text-text-tertiary" />
-                  </button>
+          {dayTasks.map(task => (
+            <div key={task.id} className="card-glass p-3 flex items-center gap-3">
+              <Check size={16} className={task.is_completed ? 'text-accent' : 'text-text-tertiary'} />
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm ${task.is_completed ? 'line-through text-text-tertiary' : 'text-text-primary'}`}>{task.title}</p>
+                {task.priority && (
+                  <p className="text-[10px] text-text-tertiary capitalize">{task.priority} priority</p>
                 )}
               </div>
-            ))}
-            {dayTasks.map(task => (
-              <div key={task.id} className="card-glass p-3 flex items-center gap-3">
-                <Check size={16} className={task.is_completed ? 'text-accent' : 'text-text-tertiary'} />
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm ${task.is_completed ? 'line-through text-text-tertiary' : 'text-text-primary'}`}>{task.title}</p>
-                  {task.priority && (
-                    <p className="text-[10px] text-text-tertiary capitalize">{task.priority} priority</p>
-                  )}
-                </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  )
+
+  return (
+    <>
+      {isDesktop ? (
+        // ── Desktop: side-by-side layout ────────────────────────────────────
+        <div className="flex flex-row gap-0 h-full overflow-hidden pt-[calc(var(--safe-top)+16px)]">
+          {/* Left: calendar grid */}
+          <div className="flex-1 overflow-y-auto px-4 py-4">
+            <div className="flex items-center justify-between mb-5">
+              <h1 className="text-2xl font-bold text-text-primary">Calendar</h1>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={openReminderSheet}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition-colors"
+                >
+                  <Plus size={16} />
+                  Add Reminder
+                </button>
+                <button
+                  onClick={() => setSelectedDay(new Date())}
+                  className="text-xs text-accent font-medium px-3 py-1.5 rounded-btn bg-accent/10 hover:bg-accent/20 transition-colors"
+                >
+                  Today
+                </button>
               </div>
-            ))}
+            </div>
+            {calendarGrid}
           </div>
-        )}
-      </div>
+
+          {/* Right: day detail panel */}
+          <div className="w-[300px] flex-shrink-0 border-l border-white/[0.08] overflow-y-auto px-4 py-4">
+            <div className="pt-[calc(var(--safe-top)+16px)]">
+              {dayDetailContent}
+            </div>
+          </div>
+        </div>
+      ) : (
+        // ── Mobile: stacked layout ──────────────────────────────────────────
+        <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto">
+          <div className="flex items-center justify-between mb-5">
+            <h1 className="text-2xl font-bold text-text-primary">Calendar</h1>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={openReminderSheet}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition-colors"
+              >
+                <Plus size={16} />
+                Add Reminder
+              </button>
+              <button
+                onClick={() => setSelectedDay(new Date())}
+                className="text-xs text-accent font-medium px-3 py-1.5 rounded-btn bg-accent/10 hover:bg-accent/20 transition-colors"
+              >
+                Today
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-5">{calendarGrid}</div>
+
+          <div className="mb-4">{dayDetailContent}</div>
+        </div>
+      )}
 
       <PlatformSheet isOpen={reminderSheetOpen} onClose={() => setReminderSheetOpen(false)} title="Add Reminder">
         <div className="space-y-3 pb-4">
@@ -265,6 +311,6 @@ export function CalendarPage() {
           </button>
         </div>
       </PlatformSheet>
-    </div>
+    </>
   )
 }
