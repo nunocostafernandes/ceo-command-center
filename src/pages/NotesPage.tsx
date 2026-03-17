@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Search, Pin, Plus, ChevronLeft, Trash2, Bold, Italic, Underline, List, ListOrdered, CheckSquare, Link } from 'lucide-react'
@@ -286,13 +287,13 @@ function NoteEditor({ note, onSave, onDelete, onBack }: {
     ? format(parseISO(note.updated_at), "MMMM d, yyyy 'at' h:mm a")
     : format(new Date(), "MMMM d, yyyy 'at' h:mm a")
 
-  return (
+  const content = (
     <motion.div
       initial={{ x: '100%' }}
       animate={{ x: 0 }}
       exit={{ x: '100%' }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-      className="fixed inset-0 flex flex-col z-40 lg:left-[220px]"
+      className="fixed inset-0 flex flex-col z-[200] lg:left-[220px]"
       style={{
         background: 'linear-gradient(180deg, #020203 0%, #050506 100%)',
         paddingTop: 'var(--safe-top)',
@@ -347,6 +348,8 @@ function NoteEditor({ note, onSave, onDelete, onBack }: {
       </div>
     </motion.div>
   )
+
+  return createPortal(content, document.body)
 }
 
 function ToolbarBtn({ children, active, onClick, title }: {
