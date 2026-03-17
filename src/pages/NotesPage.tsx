@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  Search, Pin, Plus, ChevronLeft, Trash2,
+  Search, Pin, Plus, ChevronLeft, Trash2, FileText,
   Bold, Italic, Underline, List, ListOrdered, CheckSquare, Link,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -154,6 +154,122 @@ export function NotesPage() {
 
   const activeNoteObj = activeNote === 'new' ? null : activeNote
 
+  // ── Desktop two-panel layout ────────────────────────────────────────────────
+  if (isDesktop) {
+    return (
+      <div className="flex h-[calc(100vh-0px)] overflow-hidden">
+        {/* Left panel — note list */}
+        <div className="w-[300px] flex-shrink-0 border-r border-white/[0.08] flex flex-col overflow-hidden">
+          {/* Header */}
+          <div className="px-4 pt-5 pb-3 flex-shrink-0">
+            <div className="flex items-center justify-between mb-3">
+              <h1 className="text-xl font-bold text-text-primary">Notes</h1>
+              <button
+                onClick={() => setActiveNote('new')}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-accent/15 text-accent text-xs font-medium hover:bg-accent/25 transition-colors"
+              >
+                <Plus size={14} />
+                New
+              </button>
+            </div>
+            {/* Search */}
+            <div className="relative">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search notes..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="bg-white/5 rounded-xl pl-8 pr-3 py-2 text-xs w-full focus:outline-none border border-white/[0.07] focus:border-accent/50 text-text-primary placeholder-text-tertiary transition-colors"
+              />
+            </div>
+          </div>
+
+          {/* Note list — scrollable */}
+          <div className="flex-1 overflow-y-auto px-3 pb-4">
+            {isLoading ? (
+              <div className="space-y-2 mt-2"><SkeletonCard /><SkeletonCard /></div>
+            ) : (
+              <>
+                {pinned.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-widest mb-1.5 px-1">Pinned</p>
+                    <AnimatePresence mode="popLayout">
+                      {pinned.map(note => (
+                        <DesktopNoteRow
+                          key={note.id}
+                          note={note}
+                          isSelected={activeNote !== 'new' && activeNote !== null && (activeNote as Note).id === note.id}
+                          onOpen={() => setActiveNote(note)}
+                          onTogglePin={n => togglePin.mutate({ id: n.id, pinned: n.is_pinned })}
+                        />
+                      ))}
+                    </AnimatePresence>
+                  </div>
+                )}
+                <div>
+                  {(pinned.length > 0 || all.length > 0) && (
+                    <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-widest mb-1.5 px-1">
+                      {pinned.length > 0 ? 'All Notes' : 'Notes'}
+                    </p>
+                  )}
+                  {all.length === 0 && pinned.length === 0 ? (
+                    <p className="text-text-tertiary text-xs mt-6 text-center">No notes yet.</p>
+                  ) : (
+                    <AnimatePresence mode="popLayout">
+                      {all.map(note => (
+                        <DesktopNoteRow
+                          key={note.id}
+                          note={note}
+                          isSelected={activeNote !== 'new' && activeNote !== null && (activeNote as Note).id === note.id}
+                          onOpen={() => setActiveNote(note)}
+                          onTogglePin={n => togglePin.mutate({ id: n.id, pinned: n.is_pinned })}
+                        />
+                      ))}
+                    </AnimatePresence>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Right panel — editor */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {activeNote === null ? (
+            // Empty state
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-text-tertiary">
+              <FileText size={40} strokeWidth={1.5} />
+              <p className="text-sm">Select a note or create one</p>
+            </div>
+          ) : (
+            // Inline editor — NO portal, NO slide animation on desktop
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <EditorErrorBoundary
+                fallback={
+                  <PlainTextFallback
+                    note={activeNoteObj}
+                    onSave={handleSave}
+                    onDelete={handleDelete}
+                    onBack={handleBack}
+                  />
+                }
+              >
+                <NoteEditorContent
+                  note={activeNoteObj}
+                  onSave={handleSave}
+                  onDelete={handleDelete}
+                  onBack={handleBack}
+                />
+              </EditorErrorBoundary>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Mobile layout (unchanged) ────────────────────────────────────────────────
   return (
     <>
       {/* ── Note list ── */}
@@ -161,15 +277,6 @@ export function NotesPage() {
         <div className="mb-5">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold text-text-primary">Notes</h1>
-            {isDesktop && (
-              <button
-                onClick={() => setActiveNote('new')}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition-colors"
-              >
-                <Plus size={16} />
-                New Note
-              </button>
-            )}
           </div>
           <div className="relative">
             <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
@@ -222,14 +329,12 @@ export function NotesPage() {
           </>
         )}
 
-        {!isDesktop && (
-          <button
-            onClick={() => setActiveNote('new')}
-            className="fixed bottom-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] right-5 w-14 h-14 bg-accent hover:bg-accent-hover text-white rounded-full shadow-lg flex items-center justify-center z-30 transition-colors"
-          >
-            <Plus size={24} />
-          </button>
-        )}
+        <button
+          onClick={() => setActiveNote('new')}
+          className="fixed bottom-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] right-5 w-14 h-14 bg-accent hover:bg-accent-hover text-white rounded-full shadow-lg flex items-center justify-center z-30 transition-colors"
+        >
+          <Plus size={24} />
+        </button>
       </div>
 
       {/* ── Editor portal ─────────────────────────────────────────────────────
@@ -325,16 +430,20 @@ interface EditorChromeProps {
 }
 
 function EditorChrome({ note, onBack, onDelete, children, toolbar }: EditorChromeProps) {
+  const { isDesktop } = usePlatform()
   const noteDate = note
     ? format(parseISO(note.updated_at), "MMMM d, yyyy 'at' h:mm a")
     : format(new Date(), "MMMM d, yyyy 'at' h:mm a")
   return (
     <>
       <div className="flex items-center justify-between px-2 py-2 border-b border-white/[0.06] flex-shrink-0">
-        <button onClick={onBack} className="flex items-center gap-0.5 text-accent text-[15px] font-normal px-2 py-1.5 press rounded-lg">
-          <ChevronLeft size={22} strokeWidth={2} />
-          <span style={{ fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' }}>Notes</span>
-        </button>
+        {!isDesktop && (
+          <button onClick={onBack} className="flex items-center gap-0.5 text-accent text-[15px] font-normal px-2 py-1.5 press rounded-lg">
+            <ChevronLeft size={22} strokeWidth={2} />
+            <span style={{ fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' }}>Notes</span>
+          </button>
+        )}
+        {isDesktop && <div />}
         {note && (
           <button onClick={() => onDelete(note.id)} className="p-2 press rounded-lg" style={{ color: 'rgba(255,255,255,0.3)' }}>
             <Trash2 size={17} />
@@ -559,6 +668,50 @@ function PlainTextFallback({ note, onSave, onDelete, onBack }: {
         }}
       />
     </EditorChrome>
+  )
+}
+
+// ─── Desktop Note Row ─────────────────────────────────────────────────────────
+
+function DesktopNoteRow({ note, isSelected, onOpen, onTogglePin }: {
+  note: Note
+  isSelected: boolean
+  onOpen: () => void
+  onTogglePin: (n: Note) => void
+}) {
+  const plain = stripHtml(note.content ?? '')
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      transition={{ duration: 0.15 }}
+      onClick={onOpen}
+      className={`px-3 py-2.5 rounded-xl mb-1 cursor-pointer transition-colors ${
+        isSelected
+          ? 'bg-accent/12 border border-accent/20'
+          : 'hover:bg-white/5 border border-transparent'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-1.5">
+        <p className="text-sm font-medium text-text-primary truncate leading-snug">
+          {note.title || 'Untitled'}
+        </p>
+        <button
+          onClick={e => { e.stopPropagation(); onTogglePin(note) }}
+          className="flex-shrink-0 p-0.5 rounded hover:bg-white/10 transition-colors"
+        >
+          <Pin size={11} className={note.is_pinned ? 'text-accent fill-accent' : 'text-white/20'} />
+        </button>
+      </div>
+      <div className="flex items-baseline gap-2 mt-0.5">
+        <span className="text-[10px] text-text-tertiary flex-shrink-0">
+          {format(parseISO(note.updated_at), 'MMM d')}
+        </span>
+        {plain && <span className="text-[11px] text-text-tertiary truncate">{plain}</span>}
+      </div>
+    </motion.div>
   )
 }
 
