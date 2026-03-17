@@ -359,13 +359,19 @@ function NoteEditorContent({ note, onSave, onDelete, onBack }: {
 
   // triggerSave has [] deps — it's stable forever. It reads live values from
   // refs, so it always uses the current title, noteId, and onSave callback.
+  // Only save if the note was actually changed — prevents bumping updated_at
+  // (and reordering the list) when opening and closing without editing.
+  const isDirtyRef = useRef(false)
+
   const triggerSave = useCallback((t: string, html: string) => {
+    if (!isDirtyRef.current) return
     const empty = html === '<p></p>' || html === ''
     if (!t.trim() && empty) return
     onSaveRef.current(noteIdRef.current, t.trim() || 'Untitled', empty ? '' : html)
   }, [])
 
   const scheduleSave = useCallback((t: string, html: string) => {
+    isDirtyRef.current = true
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => triggerSave(t, html), 800)
   }, [triggerSave])
@@ -488,12 +494,16 @@ function PlainTextFallback({ note, onSave, onDelete, onBack }: {
   const bodyValRef = useRef(body)
   bodyValRef.current = body
 
+  const isDirtyRef = useRef(false)
+
   const save = useCallback((t: string, b: string) => {
+    if (!isDirtyRef.current) return
     if (!t.trim() && !b.trim()) return
     onSaveRef.current(noteIdRef.current, t.trim() || 'Untitled', b)
   }, [])
 
   const schedule = useCallback((t: string, b: string) => {
+    isDirtyRef.current = true
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => save(t, b), 800)
   }, [save])
