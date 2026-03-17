@@ -4,6 +4,7 @@ import { Sidebar } from './Sidebar'
 import { TabBar } from './TabBar'
 import { PageTransition } from './PageTransition'
 import { usePlatform, useKeyboardShortcut } from '@/hooks'
+import { CommandPalette } from '@/components/desktop/CommandPalette'
 
 export function AppShell() {
   const location = useLocation()
@@ -31,6 +32,7 @@ export function AppShell() {
     <div className="min-h-dvh">
       <Sidebar />
       <TabBar />
+      <CommandPalette />
       <main
         className="ml-0 lg:ml-[var(--sidebar-current-width)] pb-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] lg:pb-8 transition-[margin-left] duration-200 ease-out"
       >
