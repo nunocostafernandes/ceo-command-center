@@ -14,6 +14,7 @@
   --tab-bar-height: 68px;
   --sidebar-width: 260px;
   --sidebar-collapsed-width: 60px;
+  --sidebar-current-width: 260px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }

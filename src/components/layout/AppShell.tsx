@@ -12,7 +12,7 @@ export function AppShell() {
       <Sidebar />
       <TabBar />
       <main
-        className="ml-0 lg:ml-[220px] pb-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] lg:pb-8"
+        className="ml-0 lg:ml-[var(--sidebar-current-width)] pb-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] lg:pb-8 transition-[margin-left] duration-200 ease-out"
       >
         <AnimatePresence mode="wait">
           <PageTransition key={location.pathname}>
