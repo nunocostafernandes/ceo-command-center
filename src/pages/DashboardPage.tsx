@@ -1,9 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, isToday, parseISO } from 'date-fns'
 import { CheckSquare, FileText, FolderKanban, Bell } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { usePlatform } from '@/hooks/usePlatform'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
 import type { Task, Reminder, Note, Project } from '@/types/database'
 
@@ -25,17 +27,11 @@ function getGreeting() {
   return 'Good evening'
 }
 
-function SectionHeader({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">
-      {children}
-    </h2>
-  )
-}
-
 export function DashboardPage() {
   const { user } = useAuth()
   const qc = useQueryClient()
+  const navigate = useNavigate()
+  const { isDesktop } = usePlatform()
   const userId = user?.id
   const firstName = (user?.user_metadata?.full_name as string | undefined)?.split(' ')[0] ?? 'there'
 
@@ -137,23 +133,30 @@ export function DashboardPage() {
   })
 
   const kpis = [
-    { label: 'Open Tasks', value: openTasksCount, icon: CheckSquare, loading: loadingTasks },
-    { label: 'Notes', value: notesCount, icon: FileText, loading: loadingNotes },
-    { label: 'Active Projects', value: activeProjectsCount, icon: FolderKanban, loading: loadingProjects },
-    { label: 'Reminders', value: remindersCount, icon: Bell, loading: loadingReminders },
+    { label: 'Open Tasks', value: openTasksCount, icon: CheckSquare, loading: loadingTasks, route: '/tasks' },
+    { label: 'Notes', value: notesCount, icon: FileText, loading: loadingNotes, route: '/notes' },
+    { label: 'Active Projects', value: activeProjectsCount, icon: FolderKanban, loading: loadingProjects, route: '/projects' },
+    { label: 'Reminders', value: remindersCount, icon: Bell, loading: loadingReminders, route: '/calendar' },
   ]
 
+  const columnStyle = isDesktop ? { maxHeight: 'calc(100vh - 220px)' } : {}
+
   return (
-    <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto">
+    <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl lg:max-w-none mx-auto">
       <div className="mb-6">
         <p className="text-text-secondary text-sm">{getGreeting()},</p>
         <h1 className="text-2xl font-bold text-text-primary">{firstName}</h1>
         <p className="text-text-tertiary text-xs mt-0.5">{format(new Date(), 'EEEE, MMMM d')}</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        {kpis.map(({ label, value, icon: Icon, loading }) => (
-          <div key={label} className="card-glass p-4">
+      {/* KPI Cards — 2 cols on mobile, 4 cols on desktop */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        {kpis.map(({ label, value, icon: Icon, loading, route }) => (
+          <div
+            key={label}
+            className="card-glass p-4 hover-lift hover-bg cursor-pointer"
+            onClick={() => navigate(route)}
+          >
             <Icon size={18} className="text-accent mb-2" />
             {loading ? (
               <div className="skeleton h-8 w-12 mb-1" />
@@ -165,98 +168,147 @@ export function DashboardPage() {
         ))}
       </div>
 
-      <div className="mb-6">
-        <SectionHeader>Today's Tasks</SectionHeader>
-        {loadingTodayTasks ? (
-          <SkeletonCard />
-        ) : todayTasks && todayTasks.length > 0 ? (
-          <div className="space-y-2">
-            {todayTasks.map(task => (
-              <div key={task.id} className="card-glass p-3 flex items-center gap-3 press" onClick={() => completeTask.mutate(task.id)}>
-                <div className="w-5 h-5 rounded-full border-2 border-accent flex-shrink-0" />
-                <span className="text-sm text-text-primary flex-1">{task.title}</span>
-                {task.priority && (
-                  <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-                    task.priority === 'urgent' ? 'bg-priority-urgent/20 text-priority-urgent' :
-                    task.priority === 'high' ? 'bg-priority-high/20 text-priority-high' :
-                    task.priority === 'medium' ? 'bg-priority-medium/20 text-priority-medium' :
-                    'bg-white/5 text-text-tertiary'
-                  }`}>{task.priority}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-text-tertiary text-sm">No tasks due today.</p>
-        )}
-      </div>
+      {/* Below KPIs — stacked on mobile, 3-col grid on desktop */}
+      <div className={isDesktop ? 'grid grid-cols-3 gap-6 mt-6' : 'space-y-6 mt-6'}>
 
-      <div className="mb-6">
-        <SectionHeader>Upcoming Reminders</SectionHeader>
-        {loadingUpcoming ? (
-          <SkeletonCard />
-        ) : upcomingReminders && upcomingReminders.length > 0 ? (
-          <div className="space-y-2">
-            {upcomingReminders.map(r => (
-              <div key={r.id} className="card-glass p-3 flex items-center gap-3">
-                <Bell size={16} className="text-status-warning flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-text-primary truncate">{r.title}</p>
-                  <p className="text-xs text-text-secondary">
-                    {isToday(parseISO(r.remind_at)) ? 'Today' : format(parseISO(r.remind_at), 'MMM d')} · {format(parseISO(r.remind_at), 'h:mm a')}
-                  </p>
+        {/* Col 1: Today's Tasks */}
+        <div
+          className={isDesktop ? 'flex flex-col overflow-y-auto' : ''}
+          style={columnStyle}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[11px] font-semibold text-text-tertiary uppercase tracking-widest">Today's Tasks</h2>
+            {isDesktop && (
+              <Link to="/tasks" className="text-xs text-accent hover:text-accent/80 transition-colors">
+                View all →
+              </Link>
+            )}
+          </div>
+          {loadingTodayTasks ? (
+            <SkeletonCard />
+          ) : todayTasks && todayTasks.length > 0 ? (
+            <div className="space-y-2">
+              {todayTasks.map(task => (
+                <div key={task.id} className="card-glass p-3 flex items-center gap-3 press" onClick={() => completeTask.mutate(task.id)}>
+                  <div className="w-5 h-5 rounded-full border-2 border-accent flex-shrink-0" />
+                  <span className="text-sm text-text-primary flex-1">{task.title}</span>
+                  {task.priority && (
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                      task.priority === 'urgent' ? 'bg-priority-urgent/20 text-priority-urgent' :
+                      task.priority === 'high' ? 'bg-priority-high/20 text-priority-high' :
+                      task.priority === 'medium' ? 'bg-priority-medium/20 text-priority-medium' :
+                      'bg-white/5 text-text-tertiary'
+                    }`}>{task.priority}</span>
+                  )}
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-text-tertiary text-sm">No upcoming reminders.</p>
-        )}
-      </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-text-tertiary text-sm">No tasks due today.</p>
+          )}
+        </div>
 
-      <div className="mb-6">
-        <SectionHeader>Recent Notes</SectionHeader>
-        {loadingRecentNotes ? (
-          <div className="space-y-2"><SkeletonCard /><SkeletonCard /></div>
-        ) : recentNotes && recentNotes.length > 0 ? (
-          <div className="space-y-2">
-            {recentNotes.map(note => (
-              <div key={note.id} className="card-glass p-4">
-                <p className="text-sm font-semibold text-text-primary mb-1">{note.title}</p>
-                {note.content && (
-                  <p className="text-xs text-text-secondary line-clamp-2">{stripHtml(note.content)}</p>
-                )}
-                <p className="text-[10px] text-text-tertiary mt-2">{format(parseISO(note.updated_at), 'MMM d, yyyy')}</p>
+        {/* Col 2: Recent Notes + Upcoming Reminders */}
+        <div
+          className={isDesktop ? 'flex flex-col gap-6 overflow-y-auto' : 'space-y-6'}
+          style={columnStyle}
+        >
+          {/* Recent Notes */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-[11px] font-semibold text-text-tertiary uppercase tracking-widest">Recent Notes</h2>
+              {isDesktop && (
+                <Link to="/notes" className="text-xs text-accent hover:text-accent/80 transition-colors">
+                  View all →
+                </Link>
+              )}
+            </div>
+            {loadingRecentNotes ? (
+              <div className="space-y-2"><SkeletonCard /><SkeletonCard /></div>
+            ) : recentNotes && recentNotes.length > 0 ? (
+              <div className="space-y-2">
+                {recentNotes.map(note => (
+                  <div key={note.id} className="card-glass p-4">
+                    <p className="text-sm font-semibold text-text-primary mb-1">{note.title}</p>
+                    {note.content && (
+                      <p className="text-xs text-text-secondary line-clamp-2">{stripHtml(note.content)}</p>
+                    )}
+                    <p className="text-[10px] text-text-tertiary mt-2">{format(parseISO(note.updated_at), 'MMM d, yyyy')}</p>
+                  </div>
+                ))}
               </div>
-            ))}
+            ) : (
+              <p className="text-text-tertiary text-sm">No notes yet.</p>
+            )}
           </div>
-        ) : (
-          <p className="text-text-tertiary text-sm">No notes yet.</p>
-        )}
-      </div>
 
-      <div className="mb-6">
-        <SectionHeader>Active Projects</SectionHeader>
-        {loadingActiveProjects ? (
-          <SkeletonCard />
-        ) : activeProjects && activeProjects.length > 0 ? (
-          <div className="space-y-2">
-            {activeProjects.map(project => (
-              <div
-                key={project.id}
-                className="card-glass p-4"
-                style={{ borderLeftColor: project.color ?? '#5E6AD2', borderLeftWidth: '3px' }}
-              >
-                <p className="text-sm font-semibold text-text-primary">{project.title}</p>
-                <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                  <div className="h-1.5 bg-accent rounded-full" style={{ width: '40%' }} />
+          {/* Upcoming Reminders */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-[11px] font-semibold text-text-tertiary uppercase tracking-widest">Upcoming Reminders</h2>
+              {isDesktop && (
+                <Link to="/calendar" className="text-xs text-accent hover:text-accent/80 transition-colors">
+                  View all →
+                </Link>
+              )}
+            </div>
+            {loadingUpcoming ? (
+              <SkeletonCard />
+            ) : upcomingReminders && upcomingReminders.length > 0 ? (
+              <div className="space-y-2">
+                {upcomingReminders.map(r => (
+                  <div key={r.id} className="card-glass p-3 flex items-center gap-3">
+                    <Bell size={16} className="text-status-warning flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-text-primary truncate">{r.title}</p>
+                      <p className="text-xs text-text-secondary">
+                        {isToday(parseISO(r.remind_at)) ? 'Today' : format(parseISO(r.remind_at), 'MMM d')} · {format(parseISO(r.remind_at), 'h:mm a')}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-text-tertiary text-sm">No upcoming reminders.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Col 3: Active Projects */}
+        <div
+          className={isDesktop ? 'flex flex-col overflow-y-auto' : ''}
+          style={columnStyle}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-[11px] font-semibold text-text-tertiary uppercase tracking-widest">Active Projects</h2>
+            {isDesktop && (
+              <Link to="/projects" className="text-xs text-accent hover:text-accent/80 transition-colors">
+                View all →
+              </Link>
+            )}
+          </div>
+          {loadingActiveProjects ? (
+            <SkeletonCard />
+          ) : activeProjects && activeProjects.length > 0 ? (
+            <div className="space-y-2">
+              {activeProjects.map(project => (
+                <div
+                  key={project.id}
+                  className="card-glass p-4"
+                  style={{ borderLeftColor: project.color ?? '#5E6AD2', borderLeftWidth: '3px' }}
+                >
+                  <p className="text-sm font-semibold text-text-primary">{project.title}</p>
+                  <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-1.5 bg-accent rounded-full" style={{ width: '40%' }} />
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-text-tertiary text-sm">No active projects.</p>
-        )}
+              ))}
+            </div>
+          ) : (
+            <p className="text-text-tertiary text-sm">No active projects.</p>
+          )}
+        </div>
+
       </div>
     </div>
   )
