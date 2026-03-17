@@ -28,6 +28,17 @@ function stripHtml(html: string): string {
   }
 }
 
+// Legacy notes (pre-Tiptap) contain inline styles, <div>, <span> etc.
+// Tiptap never generates inline styles, so their presence = legacy content.
+// We strip legacy HTML to plain text; Tiptap-native HTML passes through.
+function prepareTiptapContent(html: string | null): string {
+  if (!html) return ''
+  if (!html.includes('<')) return html
+  const isLegacy = html.includes('style=') || html.includes('<div') || html.includes('<span')
+  if (isLegacy) return stripHtml(html)
+  return html
+}
+
 export function NotesPage() {
   const { user } = useAuth()
   const qc = useQueryClient()
@@ -230,7 +241,7 @@ function NoteEditor({ note, onSave, onDelete, onBack }: {
       }),
       Placeholder.configure({ placeholder: 'Start writing...' }),
     ],
-    content: note?.content ?? '',
+    content: prepareTiptapContent(note?.content ?? null),
     editorProps: { attributes: { class: 'tiptap-editor focus:outline-none' } },
     onUpdate: ({ editor }) => scheduleSave(titleState.current, editor.getHTML()),
   })
