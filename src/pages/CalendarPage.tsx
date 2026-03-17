@@ -19,13 +19,15 @@ import {
 } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { BottomSheet } from '@/components/shared/BottomSheet'
+import { usePlatform } from '@/hooks/usePlatform'
+import { PlatformSheet } from '@/components/shared/PlatformSheet'
 import type { Task, Reminder } from '@/types/database'
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
 export function CalendarPage() {
   const { user } = useAuth()
+  const { isDesktop } = usePlatform()
   const qc = useQueryClient()
   const userId = user?.id
 
@@ -115,12 +117,27 @@ export function CalendarPage() {
     <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-2xl font-bold text-text-primary">Calendar</h1>
-        <button
-          onClick={() => setSelectedDay(new Date())}
-          className="text-xs text-accent font-medium px-3 py-1.5 rounded-btn bg-accent/10 hover:bg-accent/20 transition-colors"
-        >
-          Today
-        </button>
+        <div className="flex items-center gap-2">
+          {isDesktop && (
+            <button
+              onClick={() => {
+                const dateStr = format(selectedDay, "yyyy-MM-dd'T'HH:mm")
+                setReminderForm({ title: '', remind_at: dateStr })
+                setReminderSheetOpen(true)
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition-colors"
+            >
+              <Plus size={16} />
+              Add Reminder
+            </button>
+          )}
+          <button
+            onClick={() => setSelectedDay(new Date())}
+            className="text-xs text-accent font-medium px-3 py-1.5 rounded-btn bg-accent/10 hover:bg-accent/20 transition-colors"
+          >
+            Today
+          </button>
+        </div>
       </div>
 
       <div className="card-glass p-4 mb-5">
@@ -230,7 +247,7 @@ export function CalendarPage() {
         )}
       </div>
 
-      <BottomSheet isOpen={reminderSheetOpen} onClose={() => setReminderSheetOpen(false)} title="Add Reminder">
+      <PlatformSheet isOpen={reminderSheetOpen} onClose={() => setReminderSheetOpen(false)} title="Add Reminder">
         <div className="space-y-3 pb-4">
           <input type="text" placeholder="Reminder title" value={reminderForm.title} onChange={e => setReminderForm(f => ({ ...f, title: e.target.value }))} className={inputClass} />
           <input
@@ -247,7 +264,7 @@ export function CalendarPage() {
             {createReminder.isPending ? 'Adding...' : 'Add Reminder'}
           </button>
         </div>
-      </BottomSheet>
+      </PlatformSheet>
     </div>
   )
 }

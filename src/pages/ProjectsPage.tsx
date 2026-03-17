@@ -6,7 +6,8 @@ import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { BottomSheet } from '@/components/shared/BottomSheet'
+import { usePlatform } from '@/hooks/usePlatform'
+import { PlatformSheet } from '@/components/shared/PlatformSheet'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
 import type { Project } from '@/types/database'
 
@@ -30,6 +31,7 @@ interface ProjectForm {
 
 export function ProjectsPage() {
   const { user } = useAuth()
+  const { isDesktop } = usePlatform()
   const qc = useQueryClient()
   const navigate = useNavigate()
   const userId = user?.id
@@ -96,7 +98,18 @@ export function ProjectsPage() {
   return (
     <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto">
       <div className="mb-5">
-        <h1 className="text-2xl font-bold text-text-primary mb-4">Projects</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold text-text-primary">Projects</h1>
+          {isDesktop && (
+            <button
+              onClick={() => setSheetOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition-colors"
+            >
+              <Plus size={16} />
+              New Project
+            </button>
+          )}
+        </div>
         <div className="overflow-x-auto flex gap-2 pb-2 scrollbar-none">
           {filterPills.map(p => (
             <button
@@ -173,7 +186,7 @@ export function ProjectsPage() {
         <Plus size={24} />
       </button>
 
-      <BottomSheet isOpen={sheetOpen} onClose={() => setSheetOpen(false)} title="New Project">
+      <PlatformSheet isOpen={sheetOpen} onClose={() => setSheetOpen(false)} title="New Project">
         <div className="space-y-3 pb-4">
           <input type="text" placeholder="Project title" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className={inputClass} />
           <textarea placeholder="Description (optional)" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className={`${inputClass} resize-none`} rows={3} />
@@ -206,7 +219,7 @@ export function ProjectsPage() {
             {createMutation.isPending ? 'Creating...' : 'Create Project'}
           </button>
         </div>
-      </BottomSheet>
+      </PlatformSheet>
     </div>
   )
 }

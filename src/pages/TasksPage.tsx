@@ -6,7 +6,8 @@ import { toast } from 'sonner'
 import { format, isToday, isPast, parseISO } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { BottomSheet } from '@/components/shared/BottomSheet'
+import { usePlatform } from '@/hooks/usePlatform'
+import { PlatformSheet } from '@/components/shared/PlatformSheet'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
 import type { Task } from '@/types/database'
 
@@ -26,6 +27,7 @@ const emptyForm: TaskForm = { title: '', priority: null, due_date: '', list_name
 
 export function TasksPage() {
   const { user } = useAuth()
+  const { isDesktop } = usePlatform()
   const qc = useQueryClient()
   const userId = user?.id
 
@@ -186,7 +188,18 @@ export function TasksPage() {
   return (
     <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto">
       <div className="mb-5">
-        <h1 className="text-2xl font-bold text-text-primary mb-4">Tasks</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold text-text-primary">Tasks</h1>
+          {isDesktop && (
+            <button
+              onClick={() => setCreateSheetOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition-colors"
+            >
+              <Plus size={16} />
+              New Task
+            </button>
+          )}
+        </div>
 
         <div className="overflow-x-auto flex gap-2 pb-2 scrollbar-none">
           {statusPills.map(p => (
@@ -283,7 +296,7 @@ export function TasksPage() {
       </button>
 
       {/* Create sheet */}
-      <BottomSheet isOpen={createSheetOpen} onClose={() => setCreateSheetOpen(false)} title="New Task">
+      <PlatformSheet isOpen={createSheetOpen} onClose={() => setCreateSheetOpen(false)} title="New Task">
         <div className="space-y-3 pb-4">
           <input type="text" placeholder="Task title" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className={inputClass} />
           <textarea placeholder="Description (optional)" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className={`${inputClass} resize-none`} rows={3} />
@@ -305,10 +318,10 @@ export function TasksPage() {
             {createMutation.isPending ? 'Creating...' : 'Create Task'}
           </button>
         </div>
-      </BottomSheet>
+      </PlatformSheet>
 
       {/* Edit sheet */}
-      <BottomSheet isOpen={editSheetOpen} onClose={() => { setEditSheetOpen(false); setEditingTask(null) }} title="Edit Task">
+      <PlatformSheet isOpen={editSheetOpen} onClose={() => { setEditSheetOpen(false); setEditingTask(null) }} title="Edit Task">
         <div className="space-y-3 pb-4">
           <input type="text" placeholder="Task title" value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} className={inputClass} />
           <textarea placeholder="Description (optional)" value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} className={`${inputClass} resize-none`} rows={3} />
@@ -338,7 +351,7 @@ export function TasksPage() {
             Delete Task
           </button>
         </div>
-      </BottomSheet>
+      </PlatformSheet>
     </div>
   )
 }

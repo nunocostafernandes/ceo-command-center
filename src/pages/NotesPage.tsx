@@ -17,6 +17,7 @@ import LinkExt from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { usePlatform } from '@/hooks/usePlatform'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
 import type { Note } from '@/types/database'
 import type { ReactNode } from 'react'
@@ -64,6 +65,7 @@ class EditorErrorBoundary extends Component<{ children: ReactNode; fallback: Rea
 
 export function NotesPage() {
   const { user } = useAuth()
+  const { isDesktop } = usePlatform()
   const qc = useQueryClient()
   const userId = user?.id
   const [search, setSearch] = useState('')
@@ -157,7 +159,18 @@ export function NotesPage() {
       {/* ── Note list ── */}
       <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto">
         <div className="mb-5">
-          <h1 className="text-2xl font-bold text-text-primary mb-4">Notes</h1>
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-2xl font-bold text-text-primary">Notes</h1>
+            {isDesktop && (
+              <button
+                onClick={() => setActiveNote('new')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition-colors"
+              >
+                <Plus size={16} />
+                New Note
+              </button>
+            )}
+          </div>
           <div className="relative">
             <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
             <input
@@ -209,12 +222,14 @@ export function NotesPage() {
           </>
         )}
 
-        <button
-          onClick={() => setActiveNote('new')}
-          className="fixed bottom-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] right-5 lg:bottom-8 w-14 h-14 bg-accent hover:bg-accent-hover text-white rounded-full shadow-lg flex items-center justify-center z-30 transition-colors"
-        >
-          <Plus size={24} />
-        </button>
+        {!isDesktop && (
+          <button
+            onClick={() => setActiveNote('new')}
+            className="fixed bottom-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] right-5 w-14 h-14 bg-accent hover:bg-accent-hover text-white rounded-full shadow-lg flex items-center justify-center z-30 transition-colors"
+          >
+            <Plus size={24} />
+          </button>
+        )}
       </div>
 
       {/* ── Editor portal ─────────────────────────────────────────────────────

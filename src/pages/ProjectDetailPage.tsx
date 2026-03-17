@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import { format, parseISO } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
-import { BottomSheet } from '@/components/shared/BottomSheet'
+import { PlatformSheet } from '@/components/shared/PlatformSheet'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
 import type { Project, Task } from '@/types/database'
 
@@ -164,7 +164,7 @@ export function ProjectDetailPage() {
         )}
       </div>
 
-      <BottomSheet isOpen={taskSheetOpen} onClose={() => setTaskSheetOpen(false)} title="Add Task to Project">
+      <PlatformSheet isOpen={taskSheetOpen} onClose={() => setTaskSheetOpen(false)} title="Add Task to Project">
         <div className="space-y-3 pb-4">
           <input type="text" placeholder="Task title" value={taskForm.title} onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))} className={inputClass} />
           <select value={taskForm.priority ?? ''} onChange={e => setTaskForm(f => ({ ...f, priority: e.target.value as Task['priority'] | '' }))} className={inputClass}>
@@ -179,7 +179,7 @@ export function ProjectDetailPage() {
             {createTask.isPending ? 'Adding...' : 'Add Task'}
           </button>
         </div>
-      </BottomSheet>
+      </PlatformSheet>
     </div>
   )
 }
