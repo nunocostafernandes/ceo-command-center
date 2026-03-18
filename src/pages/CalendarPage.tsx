@@ -444,7 +444,7 @@ export function CalendarPage() {
       </div>
 
       {/* Day cells */}
-      <div className="grid grid-cols-7 gap-y-1">
+      <div className="grid grid-cols-7">
         {calDays.map(day => {
           const { hasTasks, hasReminders, hasGcal } = getDotsForDay(day)
           const leaveBarItems = getLeaveBarItems(day)
@@ -457,40 +457,68 @@ export function CalendarPage() {
               key={day.toISOString()}
               whileTap={{ scale: 0.9 }}
               onClick={() => setSelectedDay(day)}
-              className={`relative flex flex-col items-center py-1 rounded-xl transition-colors ${
-                isDesktop ? 'min-h-[80px] justify-start pt-2' : 'min-h-[44px] justify-center'
-              } ${isSelected ? 'bg-accent' : isTodayDay ? 'bg-white text-[#020203]' : 'hover:bg-white/5'}`}
+              className={`relative flex flex-col items-center rounded-xl transition-colors ${
+                isDesktop ? 'min-h-[96px] justify-start pt-1.5' : 'min-h-[48px] justify-center'
+              } hover:bg-white/[0.04] ${isSelected ? 'bg-white/[0.07]' : ''}`}
             >
-              <span className={`text-xs font-medium ${
-                isSelected ? 'text-white' : isTodayDay ? 'text-[#020203]' : inMonth ? 'text-text-primary' : 'text-text-tertiary'
+              {/* Date number — Apple-style circle */}
+              <span className={`relative z-10 flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold flex-shrink-0 ${
+                isSelected  ? 'bg-accent text-white'
+                : isTodayDay ? 'bg-white text-[#020203]'
+                : inMonth    ? 'text-text-primary'
+                :              'text-text-tertiary'
               }`}>
                 {format(day, 'd')}
               </span>
-              {/* Event dots */}
-              <div className="flex gap-0.5 mt-0.5 h-1">
-                {hasTasks     && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-accent'}`} />}
-                {hasReminders && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-status-warning'}`} />}
-                {hasGcal      && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-emerald-400'}`} />}
+
+              {/* Dots: tasks / reminders / gcal */}
+              <div className="flex gap-0.5 mt-0.5 h-1 z-10">
+                {hasTasks     && <div className="w-1 h-1 rounded-full bg-accent" />}
+                {hasReminders && <div className="w-1 h-1 rounded-full bg-status-warning" />}
+                {hasGcal      && <div className="w-1 h-1 rounded-full bg-emerald-400" />}
+                {/* Mobile only: violet dot for leave */}
+                {!isDesktop && leaveBarItems.length > 0 && (
+                  <div className="w-1 h-1 rounded-full bg-violet-400" />
+                )}
               </div>
 
-              {/* Leave event continuous bars */}
-              {leaveBarItems.map(({ event, barStart, barEnd }, i) => (
-                <div
-                  key={event.id}
-                  className="absolute bg-violet-400/70"
-                  style={{
-                    bottom: `${4 + i * 7}px`,
-                    height: '5px',
-                    left:  barStart ? '6px' : '0',
-                    right: barEnd   ? '6px' : '0',
-                    borderRadius: (barStart && barEnd)
-                      ? '9999px'
-                      : barStart ? '9999px 0 0 9999px'
-                      : barEnd   ? '0 9999px 9999px 0'
-                      : '0',
-                  }}
-                />
-              ))}
+              {/* Desktop: Apple Calendar-style event chips with title */}
+              {isDesktop && (
+                <>
+                  {leaveBarItems.slice(0, 2).map(({ event, barStart, barEnd }, i) => (
+                    <div
+                      key={event.id}
+                      className="absolute overflow-hidden"
+                      style={{
+                        top:    `${38 + i * 18}px`,
+                        height: '15px',
+                        left:   barStart ? '3px' : '0',
+                        right:  barEnd   ? '3px' : '0',
+                        background: 'rgba(109, 40, 217, 0.30)',
+                        borderRadius: (barStart && barEnd) ? '6px'
+                          : barStart ? '6px 0 0 6px'
+                          : barEnd   ? '0 6px 6px 0'
+                          : '0',
+                      }}
+                    >
+                      {/* Show title only on the first visible column of each week */}
+                      {barStart && (
+                        <span className="absolute inset-0 flex items-center px-1.5 text-[9px] font-medium text-violet-200 leading-none truncate whitespace-nowrap pointer-events-none">
+                          {event.summary}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  {leaveBarItems.length > 2 && (
+                    <span
+                      className="absolute text-[8px] text-text-tertiary leading-none"
+                      style={{ top: `${38 + 2 * 18 + 2}px`, left: '5px' }}
+                    >
+                      +{leaveBarItems.length - 2} more
+                    </span>
+                  )}
+                </>
+              )}
             </motion.button>
           )
         })}
@@ -546,20 +574,31 @@ export function CalendarPage() {
         <div className="space-y-2">
 
           {/* Leave calendar events */}
-          {dayLeave.map(event => (
-            <div key={event.id} className="card-glass p-3 flex items-start gap-3 overflow-hidden" style={{ borderLeft: '3px solid #a78bfa' }}>
-              <Palmtree size={15} className="text-violet-400 flex-shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-text-primary truncate">{event.summary}</p>
-                <p className="text-[10px] text-violet-400/70">
-                  {event.allDay ? 'All day · Leave' : `${event.start.slice(11, 16)} · Leave`}
-                </p>
-                {event.description && (
-                  <p className="text-[10px] text-text-tertiary mt-0.5 truncate">{event.description}</p>
-                )}
+          {dayLeave.map(event => {
+            // Format readable date range
+            const s = event.start.slice(0, 10)
+            const e = event.end.slice(0, 10)
+            const dateRange = s === e
+              ? (() => { try { return format(parseISO(s), 'MMM d, yyyy') } catch { return s } })()
+              : (() => {
+                  try {
+                    const sameYear = s.slice(0, 4) === e.slice(0, 4)
+                    return `${format(parseISO(s), 'MMM d')} – ${format(parseISO(e), sameYear ? 'MMM d, yyyy' : 'MMM d, yyyy')}`
+                  } catch { return `${s} – ${e}` }
+                })()
+            return (
+              <div key={event.id} className="card-glass p-3 flex items-start gap-3 overflow-hidden" style={{ borderLeft: '3px solid #a78bfa' }}>
+                <Palmtree size={15} className="text-violet-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-text-primary font-medium truncate">{event.summary}</p>
+                  <p className="text-[10px] text-violet-400/80 mt-0.5">{dateRange}</p>
+                  {event.description && (
+                    <p className="text-[10px] text-text-tertiary mt-0.5 truncate">{event.description}</p>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
 
           {/* Google Calendar events */}
           {dayGcal.map(event => {
