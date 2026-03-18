@@ -26,6 +26,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { useCalendarPrefs } from '@/contexts/CalendarPrefsContext'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useGoogleCalendar } from '@/hooks/useGoogleCalendar'
 import type { GCalEvent, GCalCalendar } from '@/hooks/useGoogleCalendar'
@@ -106,12 +107,13 @@ export function CalendarPage() {
     }
   }
 
-  // Which calendar IDs are toggled on — null means "not yet initialized"
-  const [selectedCalIds, setSelectedCalIds] = useState<Set<string> | null>(null)
-
-  // Visibility toggles for task/reminder bars
-  const [showTasks,     setShowTasks]     = useState(true)
-  const [showReminders, setShowReminders] = useState(true)
+  // Calendar prefs shared with sidebar
+  const {
+    showTasks, setShowTasks,
+    showReminders, setShowReminders,
+    selectedCalIds, setSelectedCalIds,
+    selectedMsCalIds, setSelectedMsCalIds,
+  } = useCalendarPrefs()
 
   // Sheet states
   const [reminderSheetOpen, setReminderSheetOpen] = useState(false)
@@ -127,7 +129,6 @@ export function CalendarPage() {
   const [gcalDeleting, setGcalDeleting]     = useState(false)
 
   // Microsoft Calendar state
-  const [selectedMsCalIds, setSelectedMsCalIds] = useState<Set<string> | null>(null)
   const [msCalCreateOpen, setMsCalCreateOpen]   = useState(false)
   const [msCalEditOpen, setMsCalEditOpen]       = useState(false)
   const [msCalForm, setMsCalForm]               = useState<GCalForm>(emptyGCalForm)
@@ -1203,7 +1204,6 @@ export function CalendarPage() {
               <h1 className="text-2xl font-bold text-text-primary">Calendar</h1>
               {headerButtons}
             </div>
-            {calendarsPanel}
             {calendarGrid}
           </div>
 

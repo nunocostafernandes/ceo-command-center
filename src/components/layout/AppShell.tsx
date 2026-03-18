@@ -5,6 +5,7 @@ import { TabBar } from './TabBar'
 import { PageTransition } from './PageTransition'
 import { usePlatform, useKeyboardShortcut } from '@/hooks'
 import { CommandPalette } from '@/components/desktop/CommandPalette'
+import { CalendarPrefsProvider } from '@/contexts/CalendarPrefsContext'
 
 export function AppShell() {
   const location = useLocation()
@@ -15,8 +16,9 @@ export function AppShell() {
   useKeyboardShortcut('1', true, () => navigate('/dashboard'), isDesktop)
   useKeyboardShortcut('2', true, () => navigate('/notes'), isDesktop)
   useKeyboardShortcut('3', true, () => navigate('/tasks'), isDesktop)
-  useKeyboardShortcut('4', true, () => navigate('/projects'), isDesktop)
-  useKeyboardShortcut('5', true, () => navigate('/calendar'), isDesktop)
+  useKeyboardShortcut('4', true, () => navigate('/reminders'), isDesktop)
+  useKeyboardShortcut('5', true, () => navigate('/projects'), isDesktop)
+  useKeyboardShortcut('6', true, () => navigate('/calendar'), isDesktop)
 
   // Cmd+K — command palette (dispatch custom event, CommandPalette listens)
   useKeyboardShortcut('k', true, () => {
@@ -29,19 +31,21 @@ export function AppShell() {
   }, isDesktop)
 
   return (
-    <div className="min-h-dvh">
-      <Sidebar />
-      <TabBar />
-      <CommandPalette />
-      <main
-        className="ml-0 lg:ml-[var(--sidebar-current-width)] pb-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] lg:pb-8 transition-[margin-left] duration-200 ease-out"
-      >
-        <AnimatePresence mode="wait">
-          <PageTransition key={location.pathname}>
-            <Outlet />
-          </PageTransition>
-        </AnimatePresence>
-      </main>
-    </div>
+    <CalendarPrefsProvider>
+      <div className="min-h-dvh">
+        <Sidebar />
+        <TabBar />
+        <CommandPalette />
+        <main
+          className="ml-0 lg:ml-[var(--sidebar-current-width)] pb-[calc(var(--tab-bar-height)+var(--safe-bottom)+16px)] lg:pb-8 transition-[margin-left] duration-200 ease-out"
+        >
+          <AnimatePresence mode="wait">
+            <PageTransition key={location.pathname}>
+              <Outlet />
+            </PageTransition>
+          </AnimatePresence>
+        </main>
+      </div>
+    </CalendarPrefsProvider>
   )
 }
