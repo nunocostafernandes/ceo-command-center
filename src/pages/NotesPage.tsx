@@ -252,8 +252,10 @@ export function NotesPage() {
             </div>
           ) : (
             // Inline editor — NO portal, NO slide animation on desktop
+            // key forces full remount when switching notes so Tiptap reinitialises
             <div className="flex-1 flex flex-col overflow-hidden">
               <EditorErrorBoundary
+                key={activeNote === 'new' ? '__new__' : (activeNote as Note).id}
                 fallback={
                   <PlainTextFallback
                     note={activeNoteObj}
