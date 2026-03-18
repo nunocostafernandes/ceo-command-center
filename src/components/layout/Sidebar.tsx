@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, FileText, CheckSquare, FolderKanban, CalendarDays,
-  LogOut, PanelLeftClose, PanelLeftOpen,
+  LogOut, PanelLeftClose, PanelLeftOpen, Settings,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -131,6 +131,24 @@ export function Sidebar() {
             </span>
           )}
         </div>
+
+        {/* Settings */}
+        <NavLink
+          to="/settings"
+          title={collapsed ? 'Settings' : undefined}
+          className={({ isActive }) =>
+            `flex items-center px-3 py-2.5 rounded-xl text-sm font-medium transition-colors w-full ${
+              collapsed ? 'justify-center' : 'gap-3'
+            } ${isActive ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'}`
+          }
+        >
+          {({ isActive }) => (
+            <>
+              <Settings size={18} strokeWidth={isActive ? 2.5 : 2} className="flex-shrink-0" />
+              {!collapsed && <span>Settings</span>}
+            </>
+          )}
+        </NavLink>
 
         {/* Sign out */}
         <button

@@ -955,12 +955,17 @@ export function CalendarPage() {
 
           {/* Tasks */}
           {dayTasks.map(task => (
-            <div key={task.id} className="card-glass p-3 flex items-center gap-3">
+            <div
+              key={task.id}
+              className="card-glass p-3 flex items-center gap-3 cursor-pointer hover-bg transition-colors"
+              onClick={() => navigate(`/tasks?task=${task.id}`)}
+            >
               <Check size={15} className={task.is_completed ? 'text-accent' : 'text-text-tertiary'} />
               <div className="flex-1 min-w-0">
                 <p className={`text-sm ${task.is_completed ? 'line-through text-text-tertiary' : 'text-text-primary'}`}>{task.title}</p>
                 {task.priority && <p className="text-[10px] text-text-tertiary capitalize">{task.priority} priority</p>}
               </div>
+              <span className="text-[10px] text-text-tertiary/40 flex-shrink-0">Open →</span>
             </div>
           ))}
         </div>
@@ -970,97 +975,79 @@ export function CalendarPage() {
 
   // ── Calendars panel ────────────────────────────────────────────────────────
 
+  const hasAnyConnected = gcal.isConnected || mscal.isConnected
+
   const calendarsPanel = (
     <div className="mb-3 card-glass p-3">
-      <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2">My Calendars</p>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">My Calendars</p>
+        <button
+          onClick={() => navigate('/settings')}
+          className="text-[10px] text-text-tertiary hover:text-accent transition-colors"
+        >
+          Manage →
+        </button>
+      </div>
 
       {/* Leave — always on */}
       <div className="flex items-center gap-2 py-1">
         <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: 'rgba(139,92,246,0.7)' }} />
         <span className="text-xs text-text-secondary flex-1">Leave</span>
-        <span className="text-[10px] text-text-tertiary/50">Always on</span>
+        <span className="text-[10px] text-text-tertiary/40">Always on</span>
       </div>
 
-      {/* Google Calendar */}
-      <div className="mt-2 pt-2 border-t border-white/[0.05]">
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-1.5">
-            <CalendarDays size={11} className="text-emerald-400/70" />
-            <span className="text-[10px] font-medium text-text-tertiary uppercase tracking-wider">Google</span>
-          </div>
-          {gcal.isConnected ? (
-            <button
-              onClick={() => { gcal.disconnect(); toast.success('Google Calendar disconnected') }}
-              className="text-[10px] text-text-tertiary hover:text-status-error transition-colors"
-            >Disconnect</button>
-          ) : (
-            <button onClick={() => gcal.connect()} className="text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors font-medium">
-              + Connect
-            </button>
-          )}
+      {/* Google calendars */}
+      {gcal.isConnected && gcalLoading && (
+        <div className="flex items-center gap-1.5 py-1 mt-1">
+          <Loader2 size={10} className="animate-spin text-emerald-400" />
+          <span className="text-[10px] text-text-tertiary">Loading Google calendars…</span>
         </div>
-        {gcal.isConnected && gcalLoading && (
-          <div className="flex items-center gap-1.5 py-1">
-            <Loader2 size={10} className="animate-spin text-emerald-400" />
-            <span className="text-[10px] text-text-tertiary">Loading calendars…</span>
-          </div>
-        )}
-        {gcal.isConnected && (calendars ?? []).map(cal => {
-          const isOn = selectedCalIds?.has(cal.id) ?? true
-          return (
-            <button
-              key={cal.id}
-              onClick={() => toggleCalendar(cal.id)}
-              className="flex items-center gap-2 w-full py-1 rounded-lg hover:bg-white/[0.04] transition-colors text-left"
-            >
-              <div className="w-3 h-3 rounded-sm flex-shrink-0 transition-opacity" style={{ background: cal.backgroundColor, opacity: isOn ? 1 : 0.25 }} />
-              <span className={`text-xs flex-1 truncate transition-opacity ${isOn ? 'text-text-secondary' : 'text-text-tertiary opacity-40'}`}>{cal.summary}</span>
-              {!isOn && <span className="text-[9px] text-text-tertiary/40 flex-shrink-0">hidden</span>}
-            </button>
-          )
-        })}
-      </div>
+      )}
+      {gcal.isConnected && (calendars ?? []).map(cal => {
+        const isOn = selectedCalIds?.has(cal.id) ?? true
+        return (
+          <button
+            key={cal.id}
+            onClick={() => toggleCalendar(cal.id)}
+            className="flex items-center gap-2 w-full py-1 rounded-lg hover:bg-white/[0.04] transition-all text-left"
+          >
+            <div className="w-3 h-3 rounded-sm flex-shrink-0 transition-opacity" style={{ background: cal.backgroundColor, opacity: isOn ? 1 : 0.2 }} />
+            <span className={`text-xs flex-1 truncate transition-opacity ${isOn ? 'text-text-secondary' : 'text-text-tertiary/40'}`}>{cal.summary}</span>
+          </button>
+        )
+      })}
 
-      {/* Outlook / Microsoft */}
-      <div className="mt-2 pt-2 border-t border-white/[0.05]">
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-1.5">
-            <Mail size={11} className="text-sky-400/70" />
-            <span className="text-[10px] font-medium text-text-tertiary uppercase tracking-wider">Outlook</span>
-          </div>
-          {mscal.isConnected ? (
-            <button
-              onClick={() => { void mscal.disconnect(); toast.success('Outlook disconnected') }}
-              className="text-[10px] text-text-tertiary hover:text-status-error transition-colors"
-            >Disconnect</button>
-          ) : (
-            <button onClick={() => mscal.connect()} className="text-[10px] text-sky-400 hover:text-sky-300 transition-colors font-medium">
-              + Connect
-            </button>
-          )}
+      {/* Microsoft calendars */}
+      {mscal.isConnected && msCalLoading && (
+        <div className="flex items-center gap-1.5 py-1 mt-1">
+          <Loader2 size={10} className="animate-spin text-sky-400" />
+          <span className="text-[10px] text-text-tertiary">Loading Outlook calendars…</span>
         </div>
-        {mscal.isConnected && msCalLoading && (
-          <div className="flex items-center gap-1.5 py-1">
-            <Loader2 size={10} className="animate-spin text-sky-400" />
-            <span className="text-[10px] text-text-tertiary">Loading calendars…</span>
-          </div>
-        )}
-        {mscal.isConnected && (msCalendars ?? []).map(cal => {
-          const isOn = selectedMsCalIds?.has(cal.id) ?? true
-          const color = cal.hexColor || '#38bdf8'
-          return (
-            <button
-              key={cal.id}
-              onClick={() => toggleMsCalendar(cal.id)}
-              className="flex items-center gap-2 w-full py-1 rounded-lg hover:bg-white/[0.04] transition-colors text-left"
-            >
-              <div className="w-3 h-3 rounded-sm flex-shrink-0 transition-opacity" style={{ background: color, opacity: isOn ? 1 : 0.25 }} />
-              <span className={`text-xs flex-1 truncate transition-opacity ${isOn ? 'text-text-secondary' : 'text-text-tertiary opacity-40'}`}>{cal.name}</span>
-              {!isOn && <span className="text-[9px] text-text-tertiary/40 flex-shrink-0">hidden</span>}
-            </button>
-          )
-        })}
-      </div>
+      )}
+      {mscal.isConnected && (msCalendars ?? []).map(cal => {
+        const isOn = selectedMsCalIds?.has(cal.id) ?? true
+        const color = cal.hexColor || '#38bdf8'
+        return (
+          <button
+            key={cal.id}
+            onClick={() => toggleMsCalendar(cal.id)}
+            className="flex items-center gap-2 w-full py-1 rounded-lg hover:bg-white/[0.04] transition-all text-left"
+          >
+            <div className="w-3 h-3 rounded-sm flex-shrink-0 transition-opacity" style={{ background: color, opacity: isOn ? 1 : 0.2 }} />
+            <span className={`text-xs flex-1 truncate transition-opacity ${isOn ? 'text-text-secondary' : 'text-text-tertiary/40'}`}>{cal.name}</span>
+          </button>
+        )
+      })}
+
+      {/* Prompt when nothing connected */}
+      {!hasAnyConnected && (
+        <button
+          onClick={() => navigate('/settings')}
+          className="mt-1 text-[11px] text-text-tertiary/60 hover:text-accent transition-colors"
+        >
+          + Connect Google or Outlook in Settings
+        </button>
+      )}
     </div>
   )
 
