@@ -20,6 +20,7 @@ interface NewsArticle {
   url: string
   source: string
   publishedAt: string
+  image: string | null
   region: NewsRegion
 }
 
@@ -39,17 +40,21 @@ const REGION_STYLE: Record<NewsRegion, { badge: string; dot: string }> = {
   'USA':         { badge: 'bg-red-500/15   text-red-400   border border-red-500/20',    dot: 'bg-red-500'   },
 }
 
-// Fixed-height skeleton card — reserves exactly the same space as a real card
+// Fixed skeleton — reserves same space as a real card (image + content)
 function NewsCardSkeleton() {
   return (
-    <div className="card-glass p-4 flex flex-col gap-3 min-h-[148px]">
-      <div className="flex items-center justify-between gap-2">
-        <div className="skeleton h-4 w-20 rounded-full" />
-        <div className="skeleton h-3 w-12 rounded" />
+    <div className="card-glass overflow-hidden flex flex-col">
+      {/* image placeholder */}
+      <div className="skeleton w-full aspect-[16/9]" style={{ borderRadius: 0 }} />
+      <div className="p-4 flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="skeleton h-4 w-20 rounded-full" />
+          <div className="skeleton h-3 w-12 rounded" />
+        </div>
+        <div className="skeleton h-4 w-full rounded" />
+        <div className="skeleton h-4 w-4/5 rounded" />
+        <div className="skeleton h-3 w-24 rounded mt-1" />
       </div>
-      <div className="skeleton h-4 w-full rounded" />
-      <div className="skeleton h-4 w-4/5 rounded" />
-      <div className="skeleton h-3 w-24 rounded mt-auto" />
     </div>
   )
 }
@@ -138,38 +143,50 @@ function NewsSection() {
                 href={article.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="card-glass p-4 flex flex-col gap-2.5 min-h-[148px] hover-lift hover-bg group transition-colors"
+                className="card-glass overflow-hidden flex flex-col hover-lift group transition-colors"
               >
-                {/* Top row: region badge + source + external link */}
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${style.badge}`}>
-                    {article.region}
-                  </span>
-                  <div className="flex items-center gap-1.5 ml-auto min-w-0">
-                    <span className="text-[11px] text-text-tertiary truncate max-w-[100px]">{article.source}</span>
-                    <ExternalLink
-                      size={11}
-                      className="text-text-tertiary flex-shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
+                {/* Article image — 16:9, lazy-loaded, covers the slot */}
+                <div className="w-full aspect-[16/9] bg-white/[0.04] overflow-hidden flex-shrink-0">
+                  {article.image ? (
+                    <img
+                      src={article.image}
+                      alt=""
+                      loading="lazy"
+                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                      onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
                     />
-                  </div>
+                  ) : (
+                    // Fallback: gradient placeholder when no image
+                    <div className="w-full h-full" style={{ background: 'linear-gradient(135deg, rgba(94,106,210,0.12) 0%, rgba(255,255,255,0.03) 100%)' }} />
+                  )}
                 </div>
 
-                {/* Headline — 2-line clamp for consistent height */}
-                <p className="text-sm font-semibold text-text-primary leading-snug line-clamp-2 flex-1">
-                  {article.title}
-                </p>
+                {/* Card body */}
+                <div className="p-4 flex flex-col gap-2.5 flex-1">
+                  {/* Region badge + source + link icon */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${style.badge}`}>
+                      {article.region}
+                    </span>
+                    <div className="flex items-center gap-1.5 ml-auto min-w-0">
+                      <span className="text-[11px] text-text-tertiary truncate max-w-[100px]">{article.source}</span>
+                      <ExternalLink
+                        size={11}
+                        className="text-text-tertiary flex-shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
+                      />
+                    </div>
+                  </div>
 
-                {/* Description snippet */}
-                {article.description && (
-                  <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed">
-                    {article.description}
+                  {/* Headline */}
+                  <p className="text-sm font-semibold text-text-primary leading-snug line-clamp-2 flex-1">
+                    {article.title}
                   </p>
-                )}
 
-                {/* Timestamp */}
-                <p className="text-[10px] text-text-tertiary mt-auto">
-                  {formatDistanceToNow(new Date(article.publishedAt), { addSuffix: true })}
-                </p>
+                  {/* Timestamp */}
+                  <p className="text-[10px] text-text-tertiary mt-auto">
+                    {formatDistanceToNow(new Date(article.publishedAt), { addSuffix: true })}
+                  </p>
+                </div>
               </a>
             )
           })}
