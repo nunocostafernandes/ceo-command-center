@@ -1,10 +1,10 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Plus, Check, Trash2, Pencil, FolderOpen } from 'lucide-react'
+import { Plus, Check, Trash2, Pencil, FolderOpen, Repeat2, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { format, isToday, isPast, parseISO } from 'date-fns'
+import { format, isToday, isPast, parseISO, addDays } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePlatform } from '@/hooks/usePlatform'
@@ -12,6 +12,8 @@ import { haptics } from '@/lib/haptics'
 import { PlatformSheet } from '@/components/shared/PlatformSheet'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
 import type { Task, Project } from '@/types/database'
+import { generateOccurrences, insertOccurrences } from '@/lib/recurrence'
+import type { TaskSeries } from '@/types/database'
 
 type PriorityFilter = 'all' | 'urgent' | 'high' | 'medium' | 'low'
 type StatusFilter = 'all' | 'active' | 'completed'
@@ -20,12 +22,30 @@ interface TaskForm {
   title: string
   priority: Task['priority']
   due_date: string
+  due_time: string          // "" = no time set
   list_name: string
   description: string
   assigned_to: string
+  tags: string[]
+  // Recurring (create form only)
+  is_recurring: boolean
+  recurrence_type: 'daily' | 'weekly' | 'monthly' | 'yearly'
+  recurrence_interval: number
 }
 
-const emptyForm: TaskForm = { title: '', priority: null, due_date: '', list_name: 'Inbox', description: '', assigned_to: '' }
+const emptyForm: TaskForm = {
+  title: '',
+  priority: null,
+  due_date: '',
+  due_time: '',
+  list_name: 'Inbox',
+  description: '',
+  assigned_to: '',
+  tags: [],
+  is_recurring: false,
+  recurrence_type: 'weekly',
+  recurrence_interval: 1,
+}
 
 // ── Desktop sub-components ────────────────────────────────────────────────────
 
@@ -146,6 +166,73 @@ function TaskColumn({ listName, tasks, isProject, projectColor, onComplete, onEd
   )
 }
 
+// ── TagInput ──────────────────────────────────────────────────────────────────
+
+function TagInput({
+  tags,
+  onAdd,
+  onRemove,
+  inputValue,
+  onInputChange,
+  suggestions,
+}: {
+  tags: string[]
+  onAdd: (tag: string) => void
+  onRemove: (tag: string) => void
+  inputValue: string
+  onInputChange: (v: string) => void
+  suggestions: string[]
+}) {
+  const filtered = suggestions.filter(s => !tags.includes(s) && s.includes(inputValue.toLowerCase()))
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault()
+      const tag = inputValue.trim().toLowerCase()
+      if (tag && !tags.includes(tag)) onAdd(tag)
+      onInputChange('')
+    } else if (e.key === 'Backspace' && !inputValue && tags.length > 0) {
+      onRemove(tags[tags.length - 1]!)
+    }
+  }
+
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 focus-within:border-accent transition-colors">
+      <div className="flex flex-wrap gap-1.5 mb-1.5">
+        {tags.map(tag => (
+          <span key={tag} className="flex items-center gap-1 bg-accent/15 text-accent text-xs px-2 py-0.5 rounded-full">
+            {tag}
+            <button onClick={() => onRemove(tag)} className="hover:text-white transition-colors"><X size={10} /></button>
+          </span>
+        ))}
+      </div>
+      <div className="relative">
+        <input
+          type="text"
+          placeholder={tags.length === 0 ? 'Add tags…' : ''}
+          value={inputValue}
+          onChange={e => onInputChange(e.target.value.toLowerCase())}
+          onKeyDown={handleKeyDown}
+          className="bg-transparent text-sm w-full focus:outline-none text-text-primary placeholder-text-tertiary"
+        />
+        {inputValue && filtered.length > 0 && (
+          <div className="absolute top-full left-0 mt-1 bg-bg-secondary border border-white/10 rounded-xl py-1 z-10 w-full max-h-32 overflow-y-auto shadow-lg">
+            {filtered.slice(0, 8).map(s => (
+              <button
+                key={s}
+                onMouseDown={e => { e.preventDefault(); onAdd(s); onInputChange('') }}
+                className="w-full text-left text-xs px-3 py-1.5 hover:bg-white/5 text-text-secondary transition-colors"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function TasksPage() {
@@ -163,6 +250,8 @@ export function TasksPage() {
   const [inlineInputs, setInlineInputs] = useState<Record<string, string>>({})
   const [form, setForm] = useState<TaskForm>(emptyForm)
   const [editForm, setEditForm] = useState<TaskForm>(emptyForm)
+  const [tagInputCreate, setTagInputCreate] = useState('')
+  const [tagInputEdit,   setTagInputEdit]   = useState('')
 
   const { data: tasks, isLoading } = useQuery({
     queryKey: ['tasks', userId],
@@ -174,6 +263,15 @@ export function TasksPage() {
     enabled: !!userId,
     staleTime: 1000 * 60 * 5,
   })
+
+  // Derive all unique tags client-side from cached tasks data
+  const allTags = useMemo(() => {
+    const tagSet = new Set<string>()
+    for (const task of tasks ?? []) {
+      for (const tag of task.tags ?? []) tagSet.add(tag)
+    }
+    return Array.from(tagSet).sort()
+  }, [tasks])
 
   const { data: projects } = useQuery({
     queryKey: ['projects', userId],
@@ -222,8 +320,54 @@ export function TasksPage() {
       toast.success('Task created')
       setCreateSheetOpen(false)
       setForm(emptyForm)
+      setTagInputCreate('')
     },
     onError: () => toast.error('Failed to create task'),
+  })
+
+  const createSeriesMutation = useMutation({
+    mutationFn: async () => {
+      if (!userId) throw new Error('Not authenticated')
+
+      // 1. Insert the series
+      const { data: series, error: seriesError } = await supabase
+        .from('ceo_task_series')
+        .insert({
+          user_id:             userId,
+          recurrence_type:     form.recurrence_type,
+          recurrence_interval: form.recurrence_interval,
+          base_title:          form.title,
+          base_priority:       form.priority,
+          base_list_name:      form.list_name,
+          base_description:    form.description || null,
+          base_due_time:       form.due_time  || null,
+          base_tags:           form.tags,
+          start_date:          form.due_date,
+        })
+        .select()
+        .single()
+
+      if (seriesError || !series) throw seriesError ?? new Error('Series insert failed')
+
+      // 2. Generate and insert occurrences for the next 365 days
+      const today = new Date()
+      const fromDate = new Date(Math.max(
+        new Date(form.due_date).getTime(),
+        today.getTime(),
+      ))
+      const toDate = addDays(today, 365)
+      const occurrences = generateOccurrences(series as TaskSeries, fromDate, toDate)
+      await insertOccurrences(supabase, occurrences)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['tasks', userId] })
+      void qc.invalidateQueries({ queryKey: ['kpi-tasks', userId] })
+      toast.success('Recurring task created')
+      setCreateSheetOpen(false)
+      setForm(emptyForm)
+      setTagInputCreate('')
+    },
+    onError: (e) => { console.error(e); toast.error('Failed to create recurring task') },
   })
 
   const updateMutation = useMutation({
@@ -278,12 +422,17 @@ export function TasksPage() {
   const openEdit = (task: Task) => {
     setEditingTask(task)
     setEditForm({
-      title: task.title,
-      priority: task.priority,
-      due_date: task.due_date ?? '',
-      list_name: task.list_name ?? 'Inbox',
+      title:       task.title,
+      priority:    task.priority,
+      due_date:    task.due_date ?? '',
+      due_time:    task.due_time ?? '',
+      list_name:   task.list_name ?? 'Inbox',
       description: task.description ?? '',
       assigned_to: task.assigned_to ?? '',
+      tags:        task.tags ?? [],
+      is_recurring:        false,
+      recurrence_type:     'weekly',
+      recurrence_interval: 1,
     })
     setEditSheetOpen(true)
   }
@@ -297,8 +446,10 @@ export function TasksPage() {
         description: editForm.description || null,
         priority: editForm.priority,
         due_date: editForm.due_date || null,
+        due_time: editForm.due_time || null,
         list_name: editForm.list_name || 'Inbox',
         assigned_to: editForm.assigned_to || null,
+        tags: editForm.tags,
         updated_at: new Date().toISOString(),
       },
     })
@@ -542,7 +693,7 @@ export function TasksPage() {
       )}
 
       {/* Create sheet */}
-      <PlatformSheet isOpen={createSheetOpen} onClose={() => setCreateSheetOpen(false)} title="New Task">
+      <PlatformSheet isOpen={createSheetOpen} onClose={() => { setCreateSheetOpen(false); setTagInputCreate('') }} title="New Task">
         <div className="space-y-3 pb-4">
           <input type="text" placeholder="Task title" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className={inputClass} />
           <textarea placeholder="Description (optional)" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className={`${inputClass} resize-none`} rows={3} />
@@ -555,19 +706,98 @@ export function TasksPage() {
             <option value="low">Low</option>
           </select>
           <input type="date" value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} className={inputClass} />
+          {/* Due time — only shown when due_date is set */}
+          {form.due_date && (
+            <input
+              type="time"
+              value={form.due_time}
+              onChange={e => setForm(f => ({ ...f, due_time: e.target.value }))}
+              className={inputClass}
+              placeholder="Due time (optional)"
+            />
+          )}
+          {/* Tags */}
+          <div>
+            <p className="text-[11px] text-text-tertiary mb-1 px-1">Tags</p>
+            <TagInput
+              tags={form.tags}
+              onAdd={tag => setForm(f => ({ ...f, tags: [...f.tags, tag] }))}
+              onRemove={tag => setForm(f => ({ ...f, tags: f.tags.filter(t => t !== tag) }))}
+              inputValue={tagInputCreate}
+              onInputChange={setTagInputCreate}
+              suggestions={allTags}
+            />
+          </div>
           <input type="text" placeholder="Assign to (optional)" value={form.assigned_to} onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))} className={inputClass} />
+          {/* Repeat toggle */}
+          <div className="flex items-center justify-between py-2">
+            <span className="text-sm text-text-secondary">Repeat</span>
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, is_recurring: !f.is_recurring }))}
+              className={`w-10 h-6 rounded-full transition-colors relative ${form.is_recurring ? 'bg-accent' : 'bg-white/10'}`}
+            >
+              <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${form.is_recurring ? 'translate-x-4' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+
+          {form.is_recurring && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-text-secondary flex-shrink-0">Every</span>
+              <input
+                type="number"
+                min={1}
+                max={99}
+                value={form.recurrence_interval}
+                onChange={e => setForm(f => ({ ...f, recurrence_interval: Math.max(1, parseInt(e.target.value) || 1) }))}
+                className={`${inputClass} w-16 text-center`}
+              />
+              <select
+                value={form.recurrence_type}
+                onChange={e => setForm(f => ({ ...f, recurrence_type: e.target.value as TaskForm['recurrence_type'] }))}
+                className={inputClass}
+              >
+                <option value="daily">days</option>
+                <option value="weekly">weeks</option>
+                <option value="monthly">months</option>
+                <option value="yearly">years</option>
+              </select>
+            </div>
+          )}
+
           <button
-            onClick={() => createMutation.mutate({ user_id: userId!, title: form.title, description: form.description || null, priority: form.priority, due_date: form.due_date || null, list_name: form.list_name || 'Inbox', is_completed: false, sort_order: 9999, project_id: null, milestone_id: null, assigned_to: form.assigned_to || null })}
-            disabled={!form.title || createMutation.isPending}
+            onClick={() => {
+              if (form.is_recurring) {
+                if (!form.due_date) { toast.error('Due date is required for recurring tasks'); return }
+                createSeriesMutation.mutate()
+              } else {
+                createMutation.mutate({
+                  user_id:      userId!,
+                  title:        form.title,
+                  description:  form.description || null,
+                  priority:     form.priority,
+                  due_date:     form.due_date || null,
+                  due_time:     form.due_time  || null,
+                  list_name:    form.list_name || 'Inbox',
+                  assigned_to:  form.assigned_to || null,
+                  tags:         form.tags,
+                  is_completed: false,
+                  sort_order:   9999,
+                  project_id:   null,
+                  milestone_id: null,
+                })
+              }
+            }}
+            disabled={!form.title.trim() || createMutation.isPending || createSeriesMutation.isPending}
             className="w-full bg-accent hover:bg-accent-hover text-white rounded-btn py-3 font-semibold text-sm transition-colors disabled:opacity-60"
           >
-            {createMutation.isPending ? 'Creating...' : 'Create Task'}
+            {(createMutation.isPending || createSeriesMutation.isPending) ? 'Creating…' : 'Create Task'}
           </button>
         </div>
       </PlatformSheet>
 
       {/* Edit sheet */}
-      <PlatformSheet isOpen={editSheetOpen} onClose={() => { setEditSheetOpen(false); setEditingTask(null) }} title="Edit Task">
+      <PlatformSheet isOpen={editSheetOpen} onClose={() => { setEditSheetOpen(false); setEditingTask(null); setTagInputEdit('') }} title="Edit Task">
         <div className="space-y-3 pb-4">
           <input type="text" placeholder="Task title" value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} className={inputClass} />
           <textarea placeholder="Description (optional)" value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} className={`${inputClass} resize-none`} rows={3} />
@@ -580,6 +810,28 @@ export function TasksPage() {
             <option value="low">Low</option>
           </select>
           <input type="date" value={editForm.due_date} onChange={e => setEditForm(f => ({ ...f, due_date: e.target.value }))} className={inputClass} />
+          {/* Due time — only shown when due_date is set */}
+          {editForm.due_date && (
+            <input
+              type="time"
+              value={editForm.due_time}
+              onChange={e => setEditForm(f => ({ ...f, due_time: e.target.value }))}
+              className={inputClass}
+              placeholder="Due time (optional)"
+            />
+          )}
+          {/* Tags */}
+          <div>
+            <p className="text-[11px] text-text-tertiary mb-1 px-1">Tags</p>
+            <TagInput
+              tags={editForm.tags}
+              onAdd={tag => setEditForm(f => ({ ...f, tags: [...f.tags, tag] }))}
+              onRemove={tag => setEditForm(f => ({ ...f, tags: f.tags.filter(t => t !== tag) }))}
+              inputValue={tagInputEdit}
+              onInputChange={setTagInputEdit}
+              suggestions={allTags}
+            />
+          </div>
           <input type="text" placeholder="Assign to (optional)" value={editForm.assigned_to} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))} className={inputClass} />
           <button
             onClick={handleUpdate}
