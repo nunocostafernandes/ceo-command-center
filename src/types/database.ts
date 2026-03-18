@@ -75,13 +75,14 @@ export interface TaskSeries {
   id: string
   user_id: string
   recurrence_type: 'daily' | 'weekly' | 'monthly' | 'yearly'
-  recurrence_interval: number
+  recurrence_interval: number    // positive integer, e.g. 1 = every 1 week
   base_title: string
   base_priority: 'urgent' | 'high' | 'medium' | 'low' | null
-  base_list_name: string
+  base_list_name: string         // NOT NULL DEFAULT 'Inbox' in DB
   base_description: string | null
   base_due_time: string | null   // "HH:MM" or null
   base_tags: string[]
   start_date: string             // "YYYY-MM-DD"
   created_at: string
+  // No updated_at — series are immutable (edit series is out of scope for v2)
 }
