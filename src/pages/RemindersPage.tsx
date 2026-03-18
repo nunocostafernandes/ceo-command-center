@@ -186,7 +186,7 @@ export function RemindersPage() {
 
         {isLoading && (
           <div className="space-y-2">
-            {[1, 2, 3].map(i => <SkeletonCard key={i} lines={2} />)}
+            {[1, 2, 3].map(i => <SkeletonCard key={i} />)}
           </div>
         )}
 
