@@ -1,7 +1,19 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ChevronLeft, ChevronRight, Bell, Check, Plus, CalendarDays, Trash2, Pencil, LogOut, Loader2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Bell, Check, Plus, CalendarDays, Trash2, Pencil, LogOut, Loader2, Palmtree } from 'lucide-react'
+
+const LEAVE_PROXY = 'https://ledtmryhckvgdkkqqteh.supabase.co/functions/v1/leave-calendar-proxy'
+
+interface LeaveEvent {
+  id: string
+  summary: string
+  description: string | null
+  location: string | null
+  start: string
+  end: string
+  allDay: boolean
+}
 import { toast } from 'sonner'
 import {
   format,
@@ -146,6 +158,19 @@ export function CalendarPage() {
     enabled:  gcal.isConnected && activeCalIds.length > 0,
     staleTime: 1000 * 60 * 5,
   })
+
+  // ── Leave calendar (public, no login required) ─────────────────────────────
+
+  const { data: leaveData } = useQuery({
+    queryKey: ['leave-calendar'],
+    queryFn:  async () => {
+      const res = await fetch(LEAVE_PROXY)
+      if (!res.ok) return { events: [] as LeaveEvent[] }
+      return res.json() as Promise<{ events: LeaveEvent[] }>
+    },
+    staleTime: 1000 * 60 * 30, // 30 min
+  })
+  const leaveEvents = leaveData?.events ?? []
 
   // ── Supabase mutations ────────────────────────────────────────────────────
 
@@ -301,9 +326,33 @@ export function CalendarPage() {
     return map
   }, [gcalEvents])
 
+  const leaveByDay = useMemo(() => {
+    const map: Record<string, LeaveEvent[]> = {}
+    for (const e of leaveEvents) {
+      // All-day events span from start (inclusive) to end (exclusive in iCal)
+      if (e.allDay) {
+        const start = new Date(e.start)
+        const end   = new Date(e.end)
+        const cur   = new Date(start)
+        while (cur < end) {
+          const d = format(cur, 'yyyy-MM-dd')
+          if (!map[d]) map[d] = []
+          map[d]!.push(e)
+          cur.setDate(cur.getDate() + 1)
+        }
+      } else {
+        const d = e.start.slice(0, 10)
+        if (!map[d]) map[d] = []
+        map[d]!.push(e)
+      }
+    }
+    return map
+  }, [leaveEvents])
+
   const dayTasks     = tasksByDay[selectedDayStr]     ?? []
   const dayReminders = remindersByDay[selectedDayStr] ?? []
   const dayGcal      = gcalByDay[selectedDayStr]      ?? []
+  const dayLeave     = leaveByDay[selectedDayStr]     ?? []
 
   const getDotsForDay = (day: Date) => {
     const d = format(day, 'yyyy-MM-dd')
@@ -311,6 +360,7 @@ export function CalendarPage() {
       hasTasks:     !!tasksByDay[d]?.length,
       hasReminders: !!remindersByDay[d]?.length,
       hasGcal:      !!gcalByDay[d]?.length,
+      hasLeave:     !!leaveByDay[d]?.length,
     }
   }
 
@@ -384,7 +434,7 @@ export function CalendarPage() {
       {/* Day cells */}
       <div className="grid grid-cols-7 gap-y-1">
         {calDays.map(day => {
-          const { hasTasks, hasReminders, hasGcal } = getDotsForDay(day)
+          const { hasTasks, hasReminders, hasGcal, hasLeave } = getDotsForDay(day)
           const inMonth    = isSameMonth(day, currentMonth)
           const isSelected = isSameDay(day, selectedDay)
           const isTodayDay = isToday(day)
@@ -408,6 +458,7 @@ export function CalendarPage() {
                 {hasTasks     && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-accent'}`} />}
                 {hasReminders && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-status-warning'}`} />}
                 {hasGcal      && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-emerald-400'}`} />}
+                {hasLeave     && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-violet-400'}`} />}
               </div>
             </motion.button>
           )
@@ -415,22 +466,26 @@ export function CalendarPage() {
       </div>
 
       {/* Legend */}
-      {gcal.isConnected && (
-        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.06]">
-          <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-accent" />
-            <span className="text-[10px] text-text-tertiary">Tasks</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-status-warning" />
-            <span className="text-[10px] text-text-tertiary">Reminders</span>
-          </div>
+      <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.06] flex-wrap">
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-accent" />
+          <span className="text-[10px] text-text-tertiary">Tasks</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-status-warning" />
+          <span className="text-[10px] text-text-tertiary">Reminders</span>
+        </div>
+        {gcal.isConnected && (
           <div className="flex items-center gap-1.5">
             <div className="w-2 h-2 rounded-full bg-emerald-400" />
             <span className="text-[10px] text-text-tertiary">Google Cal</span>
           </div>
+        )}
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-violet-400" />
+          <span className="text-[10px] text-text-tertiary">Leave</span>
         </div>
-      )}
+      </div>
     </div>
   )
 
@@ -454,10 +509,26 @@ export function CalendarPage() {
         </div>
       </div>
 
-      {dayTasks.length === 0 && dayReminders.length === 0 && dayGcal.length === 0 ? (
+      {dayTasks.length === 0 && dayReminders.length === 0 && dayGcal.length === 0 && dayLeave.length === 0 ? (
         <p className="text-text-tertiary text-sm">Nothing scheduled.</p>
       ) : (
         <div className="space-y-2">
+
+          {/* Leave calendar events */}
+          {dayLeave.map(event => (
+            <div key={event.id} className="card-glass p-3 flex items-start gap-3 overflow-hidden" style={{ borderLeft: '3px solid #a78bfa' }}>
+              <Palmtree size={15} className="text-violet-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-text-primary truncate">{event.summary}</p>
+                <p className="text-[10px] text-violet-400/70">
+                  {event.allDay ? 'All day · Leave' : `${event.start.slice(11, 16)} · Leave`}
+                </p>
+                {event.description && (
+                  <p className="text-[10px] text-text-tertiary mt-0.5 truncate">{event.description}</p>
+                )}
+              </div>
+            </div>
+          ))}
 
           {/* Google Calendar events */}
           {dayGcal.map(event => {
