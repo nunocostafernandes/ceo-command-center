@@ -329,21 +329,21 @@ export function CalendarPage() {
   const leaveByDay = useMemo(() => {
     const map: Record<string, LeaveEvent[]> = {}
     for (const e of leaveEvents) {
-      // All-day events span from start (inclusive) to end (exclusive in iCal)
-      if (e.allDay) {
-        const start = new Date(e.start)
-        const end   = new Date(e.end)
-        const cur   = new Date(start)
-        while (cur < end) {
+      const startDate = e.start.slice(0, 10)
+      const endDate   = e.end.slice(0, 10)
+      // Always expand across all days the event touches
+      if (startDate !== endDate) {
+        const cur = new Date(startDate)
+        const end = new Date(endDate)
+        while (cur <= end) {
           const d = format(cur, 'yyyy-MM-dd')
           if (!map[d]) map[d] = []
-          map[d]!.push(e)
+          if (!map[d]!.find(ev => ev.id === e.id)) map[d]!.push(e)
           cur.setDate(cur.getDate() + 1)
         }
       } else {
-        const d = e.start.slice(0, 10)
-        if (!map[d]) map[d] = []
-        map[d]!.push(e)
+        if (!map[startDate]) map[startDate] = []
+        map[startDate]!.push(e)
       }
     }
     return map
