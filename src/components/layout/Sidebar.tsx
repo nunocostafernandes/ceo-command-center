@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { NavLink, Link } from 'react-router-dom'
+import { NavLink, Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard, FileText, CheckSquare, FolderKanban, CalendarDays,
@@ -238,6 +238,8 @@ function MyCalendarsPanel() {
 
 export function Sidebar() {
   const { user, signOut } = useAuth()
+  const location = useLocation()
+  const isCalendarPage = location.pathname === '/calendar'
 
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('sidebar-collapsed') === 'true'
@@ -276,7 +278,7 @@ export function Sidebar() {
       <nav className="flex-1 px-3 space-y-0 overflow-y-auto">
         <NavGroup label="WORKSPACE" items={workspaceItems} collapsed={collapsed} />
         <NavGroup label="PLANNING"  items={planningItems}  collapsed={collapsed} />
-        {!collapsed && <MyCalendarsPanel />}
+        {!collapsed && isCalendarPage && <MyCalendarsPanel />}
       </nav>
 
       {/* Bottom area */}
