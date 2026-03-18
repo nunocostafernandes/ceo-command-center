@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { format, isToday, parseISO } from 'date-fns'
-import { CheckSquare, FileText, FolderKanban, Bell } from 'lucide-react'
+import { format, isToday, parseISO, formatDistanceToNow } from 'date-fns'
+import { CheckSquare, FileText, FolderKanban, Bell, ExternalLink, RefreshCw, Newspaper } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
@@ -8,6 +9,145 @@ import { useAuth } from '@/contexts/AuthContext'
 import { usePlatform } from '@/hooks/usePlatform'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
 import type { Task, Reminder, Note, Project } from '@/types/database'
+
+// ── News ──────────────────────────────────────────────────────────────────────
+
+type NewsRegion = 'Middle East' | 'Europe' | 'USA'
+
+interface NewsItem {
+  title: string
+  link: string
+  pubDate: string
+  description: string
+  region: NewsRegion
+}
+
+const FEEDS: { url: string; region: NewsRegion }[] = [
+  { url: 'https://feeds.bbci.co.uk/news/world/middle_east/rss.xml', region: 'Middle East' },
+  { url: 'https://feeds.bbci.co.uk/news/world/europe/rss.xml',      region: 'Europe' },
+  { url: 'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml', region: 'USA' },
+]
+
+async function fetchFeed(url: string, region: NewsRegion): Promise<NewsItem[]> {
+  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}&count=8`
+  const res = await fetch(apiUrl)
+  if (!res.ok) return []
+  const json = await res.json() as { items?: Array<{ title: string; link: string; pubDate: string; description: string }> }
+  return (json.items ?? []).map(item => ({
+    title: item.title,
+    link: item.link,
+    pubDate: item.pubDate,
+    description: item.description?.replace(/<[^>]*>/g, '').slice(0, 140) ?? '',
+    region,
+  }))
+}
+
+async function fetchAllNews(): Promise<NewsItem[]> {
+  const results = await Promise.allSettled(FEEDS.map(f => fetchFeed(f.url, f.region)))
+  const all: NewsItem[] = []
+  results.forEach(r => { if (r.status === 'fulfilled') all.push(...r.value) })
+  return all.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime())
+}
+
+const REGION_COLORS: Record<NewsRegion, string> = {
+  'Middle East': 'bg-amber-500/15 text-amber-400',
+  'Europe':      'bg-blue-500/15 text-blue-400',
+  'USA':         'bg-red-500/15 text-red-400',
+}
+
+function NewsSection() {
+  const [regionFilter, setRegionFilter] = useState<NewsRegion | 'All'>('All')
+
+  const { data: news, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery({
+    queryKey: ['world-news'],
+    queryFn: fetchAllNews,
+    staleTime: 1000 * 60 * 30, // 30 min
+    retry: 1,
+  })
+
+  const filtered = (news ?? []).filter(n => regionFilter === 'All' || n.region === regionFilter)
+  const pills: (NewsRegion | 'All')[] = ['All', 'Middle East', 'Europe', 'USA']
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Newspaper size={14} className="text-text-tertiary" />
+          <h2 className="text-[11px] font-semibold text-text-tertiary uppercase tracking-widest">World News</h2>
+          {dataUpdatedAt > 0 && (
+            <span className="text-[10px] text-text-tertiary opacity-50">
+              {formatDistanceToNow(new Date(dataUpdatedAt), { addSuffix: true })}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => void refetch()}
+          disabled={isFetching}
+          className="p-1 rounded-lg hover:bg-white/5 text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-40"
+        >
+          <RefreshCw size={13} className={isFetching ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {/* Region pills */}
+      <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-none pb-1">
+        {pills.map(p => (
+          <button
+            key={p}
+            onClick={() => setRegionFilter(p)}
+            className={`flex-shrink-0 text-[11px] font-medium px-3 py-1 rounded-full transition-colors ${
+              regionFilter === p ? 'bg-accent text-white' : 'bg-white/5 text-text-secondary hover:bg-white/10'
+            }`}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      {isLoading ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+          {[...Array(6)].map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      ) : isError || !news?.length ? (
+        <p className="text-text-tertiary text-sm">Couldn't load news. Check your connection.</p>
+      ) : filtered.length === 0 ? (
+        <p className="text-text-tertiary text-sm">No articles for this region.</p>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+          {filtered.slice(0, 12).map((item, i) => (
+            <a
+              key={`${item.link}-${i}`}
+              href={item.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="card-glass p-4 flex flex-col gap-2 hover-lift hover-bg group cursor-pointer"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${REGION_COLORS[item.region]}`}>
+                  {item.region}
+                </span>
+                <ExternalLink size={12} className="text-text-tertiary opacity-0 group-hover:opacity-60 transition-opacity flex-shrink-0 mt-0.5" />
+              </div>
+              <p className="text-sm font-semibold text-text-primary leading-snug line-clamp-3">
+                {item.title}
+              </p>
+              {item.description && (
+                <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed">
+                  {item.description}
+                </p>
+              )}
+              <p className="text-[10px] text-text-tertiary mt-auto">
+                {formatDistanceToNow(new Date(item.pubDate), { addSuffix: true })}
+              </p>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function stripHtml(html: string): string {
   if (!html) return ''
@@ -312,6 +452,12 @@ export function DashboardPage() {
         </div>
 
       </div>
+
+      {/* News — full-width section below the 3-col grid */}
+      <div className="mt-8 border-t border-white/[0.06] pt-6">
+        <NewsSection />
+      </div>
+
     </div>
   )
 }
