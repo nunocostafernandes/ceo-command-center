@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Plus, Check, Trash2, Pencil } from 'lucide-react'
+import { Plus, Check, Trash2, Pencil, FolderOpen } from 'lucide-react'
 import { toast } from 'sonner'
 import { format, isToday, isPast, parseISO } from 'date-fns'
 import { supabase } from '@/lib/supabase'
@@ -10,7 +10,7 @@ import { usePlatform } from '@/hooks/usePlatform'
 import { haptics } from '@/lib/haptics'
 import { PlatformSheet } from '@/components/shared/PlatformSheet'
 import { SkeletonCard } from '@/components/shared/SkeletonCard'
-import type { Task } from '@/types/database'
+import type { Task, Project } from '@/types/database'
 
 type PriorityFilter = 'all' | 'urgent' | 'high' | 'medium' | 'low'
 type StatusFilter = 'all' | 'active' | 'completed'
@@ -75,22 +75,30 @@ function DesktopTaskRow({ task, onComplete, onEdit, onDelete }: DesktopTaskRowPr
 interface TaskColumnProps {
   listName: string
   tasks: Task[]
+  isProject?: boolean
+  projectColor?: string | null
   onComplete: (task: Task) => void
   onEdit: (task: Task) => void
   onDelete: (id: string) => void
   onAddTask: (listName: string, title: string) => void
 }
 
-function TaskColumn({ listName, tasks, onComplete, onEdit, onDelete, onAddTask }: TaskColumnProps) {
+function TaskColumn({ listName, tasks, isProject, projectColor, onComplete, onEdit, onDelete, onAddTask }: TaskColumnProps) {
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [adding, setAdding] = useState(false)
+  const dotColor = projectColor ?? '#5E6AD2'
 
   return (
     <div className="w-[280px] flex-shrink-0 flex flex-col bg-white/[0.02] rounded-2xl border border-white/[0.06] overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
-        <span className="text-[11px] font-semibold text-text-tertiary uppercase tracking-widest">{listName}</span>
-        <span className="text-[11px] text-text-tertiary bg-white/5 px-2 py-0.5 rounded-full">{tasks.length}</span>
+        <div className="flex items-center gap-2 min-w-0">
+          {isProject && (
+            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: dotColor }} />
+          )}
+          <span className="text-[11px] font-semibold text-text-tertiary uppercase tracking-widest truncate">{listName}</span>
+        </div>
+        <span className="text-[11px] text-text-tertiary bg-white/5 px-2 py-0.5 rounded-full flex-shrink-0">{tasks.length}</span>
       </div>
       {/* Tasks */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1" style={{ maxHeight: 'calc(100vh - 280px)' }}>
@@ -164,6 +172,19 @@ export function TasksPage() {
     enabled: !!userId,
     staleTime: 1000 * 60 * 5,
   })
+
+  const { data: projects } = useQuery({
+    queryKey: ['projects', userId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('ceo_projects').select('id,title,color').eq('user_id', userId!)
+      if (error) throw error
+      return (data ?? []) as Pick<Project, 'id' | 'title' | 'color'>[]
+    },
+    enabled: !!userId,
+    staleTime: 1000 * 60 * 5,
+  })
+
+  const projectMap = Object.fromEntries((projects ?? []).map(p => [p.id, p]))
 
   const completeMutation = useMutation({
     mutationFn: async ({ id, completed }: { id: string; completed: boolean }) => {
@@ -280,15 +301,28 @@ export function TasksPage() {
     return true
   })
 
+  // Separate standalone tasks (no project) from project tasks
+  const standaloneTasks = filtered.filter(t => !t.project_id)
+  const projectTasks = filtered.filter(t => !!t.project_id)
+
+  // Group standalone tasks by list_name
   const grouped: Record<string, Task[]> = {}
-  filtered.forEach(t => {
+  standaloneTasks.forEach(t => {
     const list = t.list_name ?? 'Inbox'
     if (!grouped[list]) grouped[list] = []
     grouped[list].push(t)
   })
 
-  // Desktop column layout data
-  const tasksByList = filtered.reduce((acc, task) => {
+  // Group project tasks by project_id
+  const groupedByProject: Record<string, Task[]> = {}
+  projectTasks.forEach(t => {
+    const pid = t.project_id!
+    if (!groupedByProject[pid]) groupedByProject[pid] = []
+    groupedByProject[pid].push(t)
+  })
+
+  // Desktop column layout: list columns first, then project columns
+  const tasksByList = standaloneTasks.reduce((acc, task) => {
     const list = task.list_name ?? 'Inbox'
     if (!acc[list]) acc[list] = []
     acc[list].push(task)
@@ -359,10 +393,11 @@ export function TasksPage() {
         <div className={`space-y-3 ${isDesktop ? 'px-4' : ''}`}><SkeletonCard /><SkeletonCard /></div>
       ) : isDesktop ? (
         // ── Desktop: horizontal column layout ──────────────────────────────
-        listNames.length === 0 ? (
+        listNames.length === 0 && Object.keys(groupedByProject).length === 0 ? (
           <p className="text-text-tertiary text-sm px-4">No tasks.</p>
         ) : (
           <div className="flex flex-row gap-4 overflow-x-auto pb-4 px-4 pt-4">
+            {/* List columns */}
             {listNames.map(listName => (
               <TaskColumn
                 key={listName}
@@ -374,63 +409,110 @@ export function TasksPage() {
                 onAddTask={handleAddQuickTask}
               />
             ))}
+            {/* Project columns */}
+            {Object.entries(groupedByProject).map(([projectId, projectTaskList]) => {
+              const project = projectMap[projectId]
+              const label = project?.title ?? 'Project'
+              return (
+                <TaskColumn
+                  key={projectId}
+                  listName={label}
+                  tasks={projectTaskList}
+                  isProject
+                  projectColor={project?.color}
+                  onComplete={task => completeMutation.mutate({ id: task.id, completed: !task.is_completed })}
+                  onEdit={openEdit}
+                  onDelete={id => deleteMutation.mutate(id)}
+                  onAddTask={handleAddQuickTask}
+                />
+              )
+            })}
           </div>
         )
       ) : (
         // ── Mobile: flat grouped list ───────────────────────────────────────
-        Object.entries(grouped).length === 0 ? (
+        Object.entries(grouped).length === 0 && Object.keys(groupedByProject).length === 0 ? (
           <p className="text-text-tertiary text-sm">No tasks. Tap + to add one.</p>
         ) : (
-          Object.entries(grouped).map(([listName, listTasks]) => (
-            <div key={listName} className="mb-6">
-              <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">{listName}</h2>
-              <AnimatePresence mode="popLayout">
-                {listTasks.map(task => (
-                  <TaskItem
-                    key={task.id}
-                    task={task}
-                    onToggle={(id, completed) => completeMutation.mutate({ id, completed })}
-                    onDelete={id => deleteMutation.mutate(id)}
-                    onEdit={() => openEdit(task)}
-                  />
-                ))}
-              </AnimatePresence>
-              <div className="mt-2">
-                {inlineInputs[listName] !== undefined ? (
-                  <form
-                    onSubmit={e => {
-                      e.preventDefault()
-                      const val = inlineInputs[listName]?.trim()
-                      if (val) {
-                        createInline.mutate({ title: val, listName })
-                        setInlineInputs(prev => { const next = { ...prev }; delete next[listName]; return next })
-                      }
-                    }}
-                    className="flex gap-2"
-                  >
-                    <input
-                      autoFocus
-                      type="text"
-                      placeholder="Task title..."
-                      value={inlineInputs[listName] ?? ''}
-                      onChange={e => setInlineInputs(prev => ({ ...prev, [listName]: e.target.value }))}
-                      onBlur={() => setInlineInputs(prev => { const next = { ...prev }; delete next[listName]; return next })}
-                      className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-accent text-text-primary placeholder-text-tertiary"
+          <>
+            {/* Standalone list groups */}
+            {Object.entries(grouped).map(([listName, listTasks]) => (
+              <div key={listName} className="mb-6">
+                <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">{listName}</h2>
+                <AnimatePresence mode="popLayout">
+                  {listTasks.map(task => (
+                    <TaskItem
+                      key={task.id}
+                      task={task}
+                      onToggle={(id, completed) => completeMutation.mutate({ id, completed })}
+                      onDelete={id => deleteMutation.mutate(id)}
+                      onEdit={() => openEdit(task)}
                     />
-                    <button type="submit" className="bg-accent text-white rounded-xl px-3 py-2 text-sm">Add</button>
-                  </form>
-                ) : (
-                  <button
-                    onClick={() => setInlineInputs(prev => ({ ...prev, [listName]: '' }))}
-                    className="flex items-center gap-2 text-xs text-text-tertiary hover:text-text-secondary transition-colors py-1"
-                  >
-                    <Plus size={14} />
-                    Add task
-                  </button>
-                )}
+                  ))}
+                </AnimatePresence>
+                <div className="mt-2">
+                  {inlineInputs[listName] !== undefined ? (
+                    <form
+                      onSubmit={e => {
+                        e.preventDefault()
+                        const val = inlineInputs[listName]?.trim()
+                        if (val) {
+                          createInline.mutate({ title: val, listName })
+                          setInlineInputs(prev => { const next = { ...prev }; delete next[listName]; return next })
+                        }
+                      }}
+                      className="flex gap-2"
+                    >
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Task title..."
+                        value={inlineInputs[listName] ?? ''}
+                        onChange={e => setInlineInputs(prev => ({ ...prev, [listName]: e.target.value }))}
+                        onBlur={() => setInlineInputs(prev => { const next = { ...prev }; delete next[listName]; return next })}
+                        className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-accent text-text-primary placeholder-text-tertiary"
+                      />
+                      <button type="submit" className="bg-accent text-white rounded-xl px-3 py-2 text-sm">Add</button>
+                    </form>
+                  ) : (
+                    <button
+                      onClick={() => setInlineInputs(prev => ({ ...prev, [listName]: '' }))}
+                      className="flex items-center gap-2 text-xs text-text-tertiary hover:text-text-secondary transition-colors py-1"
+                    >
+                      <Plus size={14} />
+                      Add task
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))
+            ))}
+            {/* Project groups */}
+            {Object.entries(groupedByProject).map(([projectId, projectTaskList]) => {
+              const project = projectMap[projectId]
+              const label = project?.title ?? 'Project'
+              const dotColor = project?.color ?? '#5E6AD2'
+              return (
+                <div key={projectId} className="mb-6">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: dotColor }} />
+                    <FolderOpen size={12} className="text-text-tertiary" />
+                    <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{label}</h2>
+                  </div>
+                  <AnimatePresence mode="popLayout">
+                    {projectTaskList.map(task => (
+                      <TaskItem
+                        key={task.id}
+                        task={task}
+                        onToggle={(id, completed) => completeMutation.mutate({ id, completed })}
+                        onDelete={id => deleteMutation.mutate(id)}
+                        onEdit={() => openEdit(task)}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )
+            })}
+          </>
         )
       )}
 
