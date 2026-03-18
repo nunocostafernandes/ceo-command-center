@@ -21,7 +21,7 @@ import {
   startOfWeek, endOfWeek,
   eachDayOfInterval,
   isSameMonth, isSameDay, isToday,
-  parseISO, addMonths, subMonths,
+  parseISO, addMonths, subMonths, subDays,
 } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -59,13 +59,20 @@ interface GCalForm {
 }
 
 // Single event bar spanning one or more columns within a week row
+type EventBarType = 'leave' | 'gcal' | 'mscal'
 interface EventBar {
-  event: LeaveEvent
+  id: string
+  label: string
   colStart: number    // 0–6
   colSpan: number
   row: number         // vertical slot (0 = topmost)
   isEventStart: boolean
   isEventEnd: boolean
+  color: string       // bar background color (rgba/hex)
+  textColor: string   // label text color
+  type: EventBarType
+  gcalEvent?: GCalEvent
+  msCalEvent?: MSCalEvent
 }
 
 const emptyGCalForm = (defaultDate?: Date, calendarId = 'primary'): GCalForm => {
@@ -543,27 +550,67 @@ export function CalendarPage() {
       const weekStartStr = format(weekDays[0]!, 'yyyy-MM-dd')
       const weekEndStr   = format(weekDays[6]!, 'yyyy-MM-dd')
 
-      // Collect all leave events that overlap this week
       const candidates: Omit<EventBar, 'row'>[] = []
-      for (const e of leaveEvents) {
-        const eventStart = e.start.slice(0, 10)
-        const eventEnd   = e.end.slice(0, 10)
-        if (eventStart > weekEndStr || eventEnd < weekStartStr) continue
 
+      // helper: push a bar candidate if it overlaps this week
+      const push = (
+        id: string, label: string,
+        eventStart: string, eventEnd: string,
+        color: string, textColor: string, type: EventBarType,
+        gcalEvent?: GCalEvent, msCalEvent?: MSCalEvent,
+      ) => {
+        if (eventStart > weekEndStr || eventEnd < weekStartStr) return
         const clampedStart = eventStart < weekStartStr ? weekStartStr : eventStart
         const clampedEnd   = eventEnd   > weekEndStr   ? weekEndStr   : eventEnd
-
         const colStart = weekDays.findIndex(d => format(d, 'yyyy-MM-dd') === clampedStart)
         const colEnd   = weekDays.findIndex(d => format(d, 'yyyy-MM-dd') === clampedEnd)
-        if (colStart === -1 || colEnd === -1) continue
-
+        if (colStart === -1 || colEnd === -1) return
         candidates.push({
-          event: e,
-          colStart,
-          colSpan: colEnd - colStart + 1,
+          id, label, colStart, colSpan: colEnd - colStart + 1,
           isEventStart: eventStart >= weekStartStr,
           isEventEnd:   eventEnd   <= weekEndStr,
+          color, textColor, type, gcalEvent, msCalEvent,
         })
+      }
+
+      // ── Leave events ──────────────────────────────────────────────────────
+      for (const e of leaveEvents) {
+        push(e.id, e.summary,
+          e.start.slice(0, 10), e.end.slice(0, 10),
+          'rgba(109, 40, 217, 0.35)', 'rgba(196, 181, 253, 0.9)', 'leave')
+      }
+
+      // ── Google Calendar events ────────────────────────────────────────────
+      for (const e of gcalEvents ?? []) {
+        let eventStart: string, eventEnd: string
+        if (e.allDay && e.start.date) {
+          eventStart = e.start.date
+          // Google all-day end is exclusive — subtract 1 day for inclusive end
+          eventEnd = format(subDays(parseISO(e.end.date!), 1), 'yyyy-MM-dd')
+        } else {
+          const d = (e.start.dateTime ?? '').slice(0, 10)
+          if (!d) continue
+          eventStart = d; eventEnd = d
+        }
+        const calColor = e.calendarId ? (calMap[e.calendarId]?.backgroundColor ?? '#34d399') : '#34d399'
+        push(e.id, e.summary ?? '(No title)', eventStart, eventEnd,
+          `${calColor}33`, calColor, 'gcal', e)
+      }
+
+      // ── Microsoft Calendar events ─────────────────────────────────────────
+      for (const e of msCalEvents ?? []) {
+        let eventStart: string, eventEnd: string
+        if (e.isAllDay) {
+          eventStart = e.start.dateTime.slice(0, 10)
+          // MS all-day end is exclusive — subtract 1 day for inclusive end
+          eventEnd = format(subDays(parseISO(e.end.dateTime.slice(0, 10)), 1), 'yyyy-MM-dd')
+        } else {
+          eventStart = e.start.dateTime.slice(0, 10)
+          eventEnd = e.start.dateTime.slice(0, 10)
+        }
+        const calColor = e.calendarId ? (msCalMap[e.calendarId]?.hexColor || '#38bdf8') : '#38bdf8'
+        push(e.id, e.subject ?? '(No title)', eventStart, eventEnd,
+          `${calColor}33`, calColor, 'mscal', undefined, e)
       }
 
       // Sort: earlier start first, longer span first
@@ -583,7 +630,7 @@ export function CalendarPage() {
 
       return { weekDays, bars }
     })
-  }, [calDays, leaveEvents])
+  }, [calDays, leaveEvents, gcalEvents, msCalEvents, calMap, msCalMap])
 
   // ── Input style ───────────────────────────────────────────────────────────
 
@@ -718,16 +765,13 @@ export function CalendarPage() {
                         {format(day, 'd')}
                       </span>
 
-                      {/* Indicator dots */}
+                      {/* Indicator dots — tasks/reminders always; calendar events only on mobile (desktop shows bars) */}
                       <div className="flex gap-0.5 mt-0.5 h-1">
                         {!!tasksByDay[d]?.length     && <div className="w-1 h-1 rounded-full bg-accent" />}
                         {!!remindersByDay[d]?.length && <div className="w-1 h-1 rounded-full bg-status-warning" />}
-                        {!!gcalByDay[d]?.length      && <div className="w-1 h-1 rounded-full bg-emerald-400" />}
-                        {!!mscalByDay[d]?.length     && <div className="w-1 h-1 rounded-full bg-sky-400" />}
-                        {/* Mobile only: violet dot for leave events */}
-                        {!isDesktop && !!leaveByDay[d]?.length && (
-                          <div className="w-1 h-1 rounded-full bg-violet-400" />
-                        )}
+                        {!isDesktop && !!gcalByDay[d]?.length  && <div className="w-1 h-1 rounded-full bg-emerald-400" />}
+                        {!isDesktop && !!mscalByDay[d]?.length && <div className="w-1 h-1 rounded-full bg-sky-400" />}
+                        {!isDesktop && !!leaveByDay[d]?.length && <div className="w-1 h-1 rounded-full bg-violet-400" />}
                       </div>
                     </motion.div>
                   )
@@ -743,6 +787,7 @@ export function CalendarPage() {
                 const widthPct   = (bar.colSpan  / 7) * 100
                 const leftInset  = bar.isEventStart ? 3 : 0
                 const rightInset = bar.isEventEnd   ? 3 : 0
+                const isClickable = bar.type === 'gcal' || bar.type === 'mscal'
 
                 const borderRadius = bar.isEventStart && bar.isEventEnd ? '6px'
                   : bar.isEventStart ? '6px 0 0 6px'
@@ -751,29 +796,29 @@ export function CalendarPage() {
 
                 return (
                   <div
-                    key={`${bar.event.id}-${wi}-${bar.colStart}`}
-                    className="absolute pointer-events-none overflow-hidden"
+                    key={`${bar.id}-${wi}-${bar.colStart}`}
+                    className={`absolute overflow-hidden transition-opacity ${isClickable ? 'cursor-pointer hover:opacity-80' : 'pointer-events-none'}`}
                     style={{
                       top:    `${barTop}px`,
                       height: `${BAR_H - 2}px`,
                       left:   `calc(${leftPct}% + ${leftInset}px)`,
                       width:  `calc(${widthPct}% - ${leftInset + rightInset}px)`,
-                      background:   'rgba(109, 40, 217, 0.35)',
+                      background: bar.color,
                       borderRadius,
+                      zIndex: 1,
                     }}
+                    onClick={isClickable ? (e) => {
+                      e.stopPropagation()
+                      if (bar.type === 'gcal' && bar.gcalEvent) openGcalEdit(bar.gcalEvent)
+                      else if (bar.type === 'mscal' && bar.msCalEvent) openMsCalEdit(bar.msCalEvent)
+                    } : undefined}
                   >
-                    {/* Show title only at the start of the event (or week start if it continues from prev week) */}
-                    {bar.isEventStart && (
-                      <span className="absolute inset-0 flex items-center px-1.5 text-[9px] font-semibold text-violet-200 leading-none truncate whitespace-nowrap">
-                        {bar.event.summary}
-                      </span>
-                    )}
-                    {/* Continuation label when event wraps from previous week */}
-                    {!bar.isEventStart && (
-                      <span className="absolute inset-0 flex items-center px-1.5 text-[9px] text-violet-300/60 leading-none truncate whitespace-nowrap italic">
-                        {bar.event.summary}
-                      </span>
-                    )}
+                    <span
+                      className="absolute inset-0 flex items-center px-1.5 text-[9px] font-semibold leading-none truncate whitespace-nowrap"
+                      style={{ color: bar.textColor, opacity: bar.isEventStart ? 1 : 0.6, fontStyle: bar.isEventStart ? 'normal' : 'italic' }}
+                    >
+                      {bar.label}
+                    </span>
                   </div>
                 )
               })}
@@ -796,18 +841,18 @@ export function CalendarPage() {
         </div>
         {gcal.isConnected && (
           <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-emerald-400" />
+            <div className="w-5 h-[5px] rounded-sm bg-emerald-400/60" />
             <span className="text-[10px] text-text-tertiary">Google Cal</span>
           </div>
         )}
         {mscal.isConnected && (
           <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-sky-400" />
+            <div className="w-5 h-[5px] rounded-sm bg-sky-400/60" />
             <span className="text-[10px] text-text-tertiary">Outlook</span>
           </div>
         )}
         <div className="flex items-center gap-1.5">
-          <div className="w-5 h-[5px] rounded-full bg-violet-400/70" />
+          <div className="w-5 h-[5px] rounded-sm bg-violet-400/70" />
           <span className="text-[10px] text-text-tertiary">Leave</span>
         </div>
       </div>
@@ -955,35 +1000,28 @@ export function CalendarPage() {
     </>
   )
 
-  // ── Connect banners ────────────────────────────────────────────────────────
+  // ── Connect banners (compact) ──────────────────────────────────────────────
 
-  const gcalBanner = !gcal.isConnected ? (
-    <div className="mb-3 card-glass p-3 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3">
-        <CalendarDays size={16} className="text-emerald-400 flex-shrink-0" />
-        <div>
-          <p className="text-sm font-medium text-text-primary">Connect Google Calendar</p>
-          <p className="text-xs text-text-tertiary">View and manage your Google events</p>
-        </div>
-      </div>
-      <button onClick={() => gcal.connect()} className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 text-xs font-medium hover:bg-emerald-500/25 transition-colors">
-        Connect
-      </button>
-    </div>
-  ) : null
-
-  const mscalBanner = !mscal.isConnected ? (
-    <div className="mb-3 card-glass p-3 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3">
-        <Mail size={16} className="text-sky-400 flex-shrink-0" />
-        <div>
-          <p className="text-sm font-medium text-text-primary">Connect Outlook / Office 365</p>
-          <p className="text-xs text-text-tertiary">View and manage your Microsoft events</p>
-        </div>
-      </div>
-      <button onClick={() => mscal.connect()} className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-sky-500/15 text-sky-400 text-xs font-medium hover:bg-sky-500/25 transition-colors">
-        Connect
-      </button>
+  const connectBanner = (!gcal.isConnected || !mscal.isConnected) ? (
+    <div className="flex items-center gap-2 mb-3 flex-wrap">
+      {!gcal.isConnected && (
+        <button
+          onClick={() => gcal.connect()}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-emerald-500/25 text-xs text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+        >
+          <CalendarDays size={12} />
+          Connect Google Calendar
+        </button>
+      )}
+      {!mscal.isConnected && (
+        <button
+          onClick={() => mscal.connect()}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-sky-500/25 text-xs text-sky-400 hover:bg-sky-500/10 transition-colors"
+        >
+          <Mail size={12} />
+          Connect Outlook
+        </button>
+      )}
     </div>
   ) : null
 
@@ -1128,8 +1166,7 @@ export function CalendarPage() {
               <h1 className="text-2xl font-bold text-text-primary">Calendar</h1>
               {headerButtons}
             </div>
-            {gcalBanner}
-            {mscalBanner}
+            {connectBanner}
             {calendarPicker}
             {calendarGrid}
           </div>
@@ -1147,8 +1184,7 @@ export function CalendarPage() {
             <h1 className="text-2xl font-bold text-text-primary">Calendar</h1>
             {headerButtons}
           </div>
-          {gcalBanner}
-          {mscalBanner}
+          {connectBanner}
           {calendarPicker}
           <div className="mb-5">{calendarGrid}</div>
           <div className="mb-4" ref={dayDetailRef}>{dayDetailContent}</div>
