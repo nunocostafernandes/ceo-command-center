@@ -463,11 +463,11 @@ export function CalendarPage() {
           const isTodayDay = isToday(day)
 
           return (
-            <motion.button
+            <motion.div
               key={day.toISOString()}
               whileTap={{ scale: 0.9 }}
               onClick={() => selectDay(day, true)}
-              className={`relative flex flex-col items-center rounded-xl transition-colors ${
+              className={`relative flex flex-col items-center rounded-xl transition-colors cursor-pointer ${
                 isDesktop ? 'min-h-[96px] justify-start pt-1.5' : 'min-h-[48px] justify-center'
               } hover:bg-white/[0.04] ${isSelected ? 'bg-white/[0.07]' : ''}`}
             >
@@ -530,7 +530,7 @@ export function CalendarPage() {
                   )}
                 </>
               )}
-            </motion.button>
+            </motion.div>
           )
         })}
       </div>
