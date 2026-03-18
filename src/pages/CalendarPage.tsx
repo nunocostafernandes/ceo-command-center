@@ -243,7 +243,15 @@ export function CalendarPage() {
     },
     staleTime: 1000 * 60 * 30,
   })
-  const leaveEvents = leaveData?.events ?? []
+  // Deduplicate by event ID — ICS feeds sometimes contain the same VEVENT twice
+  const leaveEvents = useMemo(() => {
+    const seen = new Set<string>()
+    return (leaveData?.events ?? []).filter(e => {
+      if (seen.has(e.id)) return false
+      seen.add(e.id)
+      return true
+    })
+  }, [leaveData])
 
   // ── Supabase mutations ────────────────────────────────────────────────────
 
