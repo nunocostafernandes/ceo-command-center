@@ -73,6 +73,9 @@ function DesktopTaskRow({ task, onComplete, onEdit, onDelete }: DesktopTaskRowPr
       {/* Title */}
       <span className={`flex-1 text-sm leading-snug ${task.is_completed ? 'line-through text-text-tertiary' : 'text-text-primary'}`}>
         {task.title}
+        {task.series_id && (
+          <Repeat2 size={12} className="text-text-tertiary flex-shrink-0 inline ml-1" />
+        )}
       </span>
       {/* Actions — reveal on hover */}
       <div className="reveal-on-hover flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -252,6 +255,8 @@ export function TasksPage() {
   const [editForm, setEditForm] = useState<TaskForm>(emptyForm)
   const [tagInputCreate, setTagInputCreate] = useState('')
   const [tagInputEdit,   setTagInputEdit]   = useState('')
+  const [deleteSeriesOpen, setDeleteSeriesOpen] = useState(false)
+  const [activeTags, setActiveTags] = useState<string[]>([])
 
   const { data: tasks, isLoading } = useQuery({
     queryKey: ['tasks', userId],
@@ -272,6 +277,11 @@ export function TasksPage() {
     }
     return Array.from(tagSet).sort()
   }, [tasks])
+
+  const hasTaggedTasks = useMemo(
+    () => (tasks ?? []).some(t => t.tags && t.tags.length > 0),
+    [tasks]
+  )
 
   const { data: projects } = useQuery({
     queryKey: ['projects', userId],
@@ -399,6 +409,25 @@ export function TasksPage() {
     onError: () => toast.error('Failed to delete task'),
   })
 
+  const deleteSeriesMutation = useMutation({
+    mutationFn: async (seriesId: string) => {
+      const { error } = await supabase
+        .from('ceo_task_series')
+        .delete()
+        .eq('id', seriesId)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['tasks', userId] })
+      void qc.invalidateQueries({ queryKey: ['kpi-tasks', userId] })
+      toast.success('Series deleted')
+      setDeleteSeriesOpen(false)
+      setEditSheetOpen(false)
+      setEditingTask(null)
+    },
+    onError: () => toast.error('Failed to delete series'),
+  })
+
   const createInline = useMutation({
     mutationFn: async ({ title, listName }: { title: string; listName: string }) => {
       const { error } = await supabase.from('ceo_tasks').insert({ user_id: userId!, title, list_name: listName, is_completed: false, sort_order: 9999 })
@@ -464,6 +493,9 @@ export function TasksPage() {
     if (statusFilter === 'completed' && !t.is_completed) return false
     if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false
     return true
+  }).filter(task => {
+    if (activeTags.length === 0) return true
+    return activeTags.every(tag => task.tags?.includes(tag))
   })
 
   // Separate standalone tasks (no project) from project tasks
@@ -552,6 +584,37 @@ export function TasksPage() {
             </button>
           ))}
         </div>
+
+        {hasTaggedTasks && allTags.length > 0 && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            {allTags.map(tag => {
+              const isActive = activeTags.includes(tag)
+              return (
+                <button
+                  key={tag}
+                  onClick={() => setActiveTags(prev =>
+                    isActive ? prev.filter(t => t !== tag) : [...prev, tag]
+                  )}
+                  className={`flex-shrink-0 text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                    isActive
+                      ? 'bg-accent/15 border-accent text-accent'
+                      : 'border-white/10 text-text-tertiary hover:border-white/20'
+                  }`}
+                >
+                  {tag}
+                </button>
+              )
+            })}
+            {activeTags.length > 0 && (
+              <button
+                onClick={() => setActiveTags([])}
+                className="flex-shrink-0 text-xs text-text-tertiary/60 hover:text-text-tertiary transition-colors ml-1"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -797,7 +860,7 @@ export function TasksPage() {
       </PlatformSheet>
 
       {/* Edit sheet */}
-      <PlatformSheet isOpen={editSheetOpen} onClose={() => { setEditSheetOpen(false); setEditingTask(null); setTagInputEdit('') }} title="Edit Task">
+      <PlatformSheet isOpen={editSheetOpen} onClose={() => { setEditSheetOpen(false); setEditingTask(null); setTagInputEdit(''); setDeleteSeriesOpen(false) }} title="Edit Task">
         <div className="space-y-3 pb-4">
           <input type="text" placeholder="Task title" value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} className={inputClass} />
           <textarea placeholder="Description (optional)" value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} className={`${inputClass} resize-none`} rows={3} />
@@ -809,7 +872,19 @@ export function TasksPage() {
             <option value="medium">Medium</option>
             <option value="low">Low</option>
           </select>
-          <input type="date" value={editForm.due_date} onChange={e => setEditForm(f => ({ ...f, due_date: e.target.value }))} className={inputClass} />
+          <input
+            type="date"
+            value={editForm.due_date}
+            onChange={e => {
+              if (editingTask?.series_id) return  // recurring tasks: due_date is read-only
+              setEditForm(f => ({ ...f, due_date: e.target.value, due_time: '' }))
+            }}
+            readOnly={!!editingTask?.series_id}
+            className={`${inputClass} ${editingTask?.series_id ? 'opacity-50 cursor-not-allowed' : ''}`}
+          />
+          {editingTask?.series_id && (
+            <p className="text-[10px] text-text-tertiary px-1">Due date is fixed for recurring tasks.</p>
+          )}
           {/* Due time — only shown when due_date is set */}
           {editForm.due_date && (
             <input
@@ -840,14 +915,56 @@ export function TasksPage() {
           >
             {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
           </button>
-          <button
-            onClick={() => editingTask && deleteMutation.mutate(editingTask.id)}
-            disabled={deleteMutation.isPending}
-            className="w-full bg-status-error/10 hover:bg-status-error/20 text-status-error rounded-btn py-3 font-semibold text-sm transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
-          >
-            <Trash2 size={15} />
-            Delete Task
-          </button>
+          {/* Delete — two options for recurring tasks */}
+          {editingTask?.series_id ? (
+            <>
+              {!deleteSeriesOpen ? (
+                <button
+                  onClick={() => setDeleteSeriesOpen(true)}
+                  className="w-full bg-status-error/10 hover:bg-status-error/20 text-status-error rounded-btn py-3 font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={15} />Delete Task
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-text-tertiary text-center px-2">
+                    Delete this occurrence or the entire series?
+                  </p>
+                  <p className="text-[10px] text-status-error/70 text-center px-2">
+                    Deleting the series will remove all occurrences, including any you've edited individually.
+                  </p>
+                  <button
+                    onClick={() => editingTask && deleteMutation.mutate(editingTask.id)}
+                    disabled={deleteMutation.isPending}
+                    className="w-full bg-status-error/10 hover:bg-status-error/20 text-status-error rounded-btn py-2.5 font-medium text-sm transition-colors"
+                  >
+                    Delete this occurrence
+                  </button>
+                  <button
+                    onClick={() => editingTask?.series_id && deleteSeriesMutation.mutate(editingTask.series_id)}
+                    disabled={deleteSeriesMutation.isPending}
+                    className="w-full bg-status-error/20 hover:bg-status-error/30 text-status-error rounded-btn py-2.5 font-medium text-sm transition-colors"
+                  >
+                    {deleteSeriesMutation.isPending ? 'Deleting…' : 'Delete entire series'}
+                  </button>
+                  <button
+                    onClick={() => setDeleteSeriesOpen(false)}
+                    className="w-full text-text-tertiary text-sm py-2"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <button
+              onClick={() => editingTask && deleteMutation.mutate(editingTask.id)}
+              disabled={deleteMutation.isPending}
+              className="w-full bg-status-error/10 hover:bg-status-error/20 text-status-error rounded-btn py-3 font-semibold text-sm transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              <Trash2 size={15} />Delete Task
+            </button>
+          )}
         </div>
       </PlatformSheet>
     </div>
@@ -901,6 +1018,9 @@ function TaskItem({ task, onToggle, onDelete, onEdit }: TaskItemProps) {
         <button className="flex-1 min-w-0 text-left" onClick={onEdit}>
           <p className={`text-sm ${task.is_completed ? 'line-through text-text-tertiary' : 'text-text-primary'}`}>
             {task.title}
+            {task.series_id && (
+              <Repeat2 size={12} className="text-text-tertiary flex-shrink-0 inline ml-1" />
+            )}
           </p>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             {task.due_date && (
