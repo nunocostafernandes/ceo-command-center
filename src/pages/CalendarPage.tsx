@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ChevronLeft, ChevronRight, Bell, Check, Plus, CalendarDays, Trash2, Pencil, LogOut, Loader2, Palmtree } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Bell, Check, Plus, CalendarDays, Trash2, Pencil, LogOut, Loader2, Palmtree, Mail } from 'lucide-react'
 
 const LEAVE_PROXY = 'https://ledtmryhckvgdkkqqteh.supabase.co/functions/v1/leave-calendar-proxy'
 
@@ -28,6 +28,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useGoogleCalendar } from '@/hooks/useGoogleCalendar'
 import type { GCalEvent, GCalCalendar } from '@/hooks/useGoogleCalendar'
+import { useMicrosoftCalendar } from '@/hooks/useMicrosoftCalendar'
+import type { MSCalEvent, MSCalendar } from '@/hooks/useMicrosoftCalendar'
 import { PlatformSheet } from '@/components/shared/PlatformSheet'
 import type { Task, Reminder } from '@/types/database'
 
@@ -77,7 +79,8 @@ export function CalendarPage() {
   const { isDesktop } = usePlatform()
   const qc = useQueryClient()
   const userId = user?.id
-  const gcal = useGoogleCalendar()
+  const gcal  = useGoogleCalendar()
+  const mscal = useMicrosoftCalendar()
 
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [selectedDay, setSelectedDay]   = useState(new Date())
@@ -105,6 +108,15 @@ export function CalendarPage() {
   const [editingEvent, setEditingEvent]     = useState<GCalEvent | null>(null)
   const [gcalSaving, setGcalSaving]         = useState(false)
   const [gcalDeleting, setGcalDeleting]     = useState(false)
+
+  // Microsoft Calendar state
+  const [selectedMsCalIds, setSelectedMsCalIds] = useState<Set<string> | null>(null)
+  const [msCalCreateOpen, setMsCalCreateOpen]   = useState(false)
+  const [msCalEditOpen, setMsCalEditOpen]       = useState(false)
+  const [msCalForm, setMsCalForm]               = useState<GCalForm>(emptyGCalForm)
+  const [editingMsEvent, setEditingMsEvent]     = useState<MSCalEvent | null>(null)
+  const [msCalSaving, setMsCalSaving]           = useState(false)
+  const [msCalDeleting, setMsCalDeleting]       = useState(false)
 
   // Calendar range
   const monthStart = startOfMonth(currentMonth)
@@ -180,6 +192,43 @@ export function CalendarPage() {
     queryKey: gcalQueryKey,
     queryFn:  () => gcal.fetchEvents(`${rangeStart}T00:00:00Z`, `${rangeEnd}T23:59:59Z`, activeCalIds),
     enabled:  gcal.isConnected && activeCalIds.length > 0,
+    staleTime: 1000 * 60 * 5,
+  })
+
+  // ── Microsoft Calendar queries ────────────────────────────────────────────
+
+  const { data: msCalendars } = useQuery<MSCalendar[]>({
+    queryKey: ['ms-calendars', mscal.isConnected],
+    queryFn:  () => mscal.fetchCalendars(),
+    enabled:  mscal.isConnected,
+    staleTime: 1000 * 60 * 60,
+  })
+
+  useEffect(() => {
+    if (msCalendars && selectedMsCalIds === null) {
+      setSelectedMsCalIds(new Set(msCalendars.map(c => c.id)))
+    }
+  }, [msCalendars, selectedMsCalIds])
+
+  useEffect(() => {
+    if (!mscal.isConnected) setSelectedMsCalIds(null)
+  }, [mscal.isConnected])
+
+  const activeMsCalIds = useMemo(() => {
+    if (!selectedMsCalIds || selectedMsCalIds.size === 0) return []
+    return Array.from(selectedMsCalIds)
+  }, [selectedMsCalIds])
+
+  const msCalMap = useMemo(() => {
+    const m: Record<string, MSCalendar> = {}
+    for (const c of msCalendars ?? []) m[c.id] = c
+    return m
+  }, [msCalendars])
+
+  const { data: msCalEvents, isLoading: msCalLoading, refetch: refetchMsCal } = useQuery({
+    queryKey: ['ms-cal-events', rangeStart, rangeEnd, activeMsCalIds.join(',')],
+    queryFn:  () => mscal.fetchEvents(`${rangeStart}T00:00:00Z`, `${rangeEnd}T23:59:59Z`, activeMsCalIds),
+    enabled:  mscal.isConnected && activeMsCalIds.length > 0,
     staleTime: 1000 * 60 * 5,
   })
 
@@ -301,7 +350,7 @@ export function CalendarPage() {
     }
   }
 
-  // Toggle a calendar on/off
+  // Toggle a Google calendar on/off
   const toggleCalendar = (calId: string) => {
     setSelectedCalIds(prev => {
       const next = new Set(prev ?? [])
@@ -313,6 +362,87 @@ export function CalendarPage() {
       }
       return next
     })
+  }
+
+  // ── Microsoft Calendar handlers ────────────────────────────────────────────
+
+  const toggleMsCalendar = (calId: string) => {
+    setSelectedMsCalIds(prev => {
+      const next = new Set(prev ?? [])
+      if (next.has(calId)) {
+        if (next.size === 1) return prev
+        next.delete(calId)
+      } else {
+        next.add(calId)
+      }
+      return next
+    })
+  }
+
+  const openMsCalCreate = () => {
+    setMsCalForm(emptyGCalForm(selectedDay))
+    setMsCalCreateOpen(true)
+  }
+
+  const openMsCalEdit = (event: MSCalEvent) => {
+    setEditingMsEvent(event)
+    setMsCalForm({
+      summary:     event.subject ?? '',
+      description: event.bodyPreview ?? '',
+      start:       event.isAllDay ? event.start.dateTime.slice(0, 10) : format(parseISO(event.start.dateTime), "yyyy-MM-dd'T'HH:mm"),
+      end:         event.isAllDay ? event.end.dateTime.slice(0, 10)   : format(parseISO(event.end.dateTime),   "yyyy-MM-dd'T'HH:mm"),
+      allDay:      event.isAllDay,
+      calendarId:  event.calendarId ?? '',
+    })
+    setMsCalEditOpen(true)
+  }
+
+  const handleMsCalCreate = async () => {
+    if (!msCalForm.summary.trim()) return
+    setMsCalSaving(true)
+    const start = msCalForm.allDay ? msCalForm.start.slice(0, 10) : localToISO(msCalForm.start)
+    const end   = msCalForm.allDay ? msCalForm.end.slice(0, 10)   : localToISO(msCalForm.end)
+    const result = await mscal.createEvent(msCalForm.summary, start, end, msCalForm.description || undefined, msCalForm.allDay, msCalForm.calendarId || undefined)
+    setMsCalSaving(false)
+    if (result) {
+      toast.success('Event created')
+      setMsCalCreateOpen(false)
+      void refetchMsCal()
+    } else {
+      toast.error('Failed to create event')
+    }
+  }
+
+  const handleMsCalUpdate = async () => {
+    if (!editingMsEvent || !msCalForm.summary.trim()) return
+    setMsCalSaving(true)
+    const start = msCalForm.allDay ? msCalForm.start.slice(0, 10) : localToISO(msCalForm.start)
+    const end   = msCalForm.allDay ? msCalForm.end.slice(0, 10)   : localToISO(msCalForm.end)
+    const result = await mscal.updateEvent(editingMsEvent.id, msCalForm.summary, start, end, msCalForm.description || undefined, msCalForm.allDay)
+    setMsCalSaving(false)
+    if (result) {
+      toast.success('Event updated')
+      setMsCalEditOpen(false)
+      setEditingMsEvent(null)
+      void refetchMsCal()
+    } else {
+      toast.error('Failed to update event')
+    }
+  }
+
+  const handleMsCalDelete = async () => {
+    if (!editingMsEvent) return
+    setMsCalDeleting(true)
+    const ok = await mscal.deleteEvent(editingMsEvent.id)
+    setMsCalDeleting(false)
+    if (ok) {
+      toast.success('Event deleted')
+      setMsCalEditOpen(false)
+      setEditingMsEvent(null)
+      void refetchMsCal()
+    } else {
+      toast.error('Failed to delete event')
+    }
   }
 
   // ── Data maps ─────────────────────────────────────────────────────────────
@@ -350,6 +480,17 @@ export function CalendarPage() {
     return map
   }, [gcalEvents])
 
+  const mscalByDay = useMemo(() => {
+    const map: Record<string, MSCalEvent[]> = {}
+    for (const e of msCalEvents ?? []) {
+      const d = e.start.dateTime.slice(0, 10)
+      if (!d) continue
+      if (!map[d]) map[d] = []
+      map[d]!.push(e)
+    }
+    return map
+  }, [msCalEvents])
+
   // leaveByDay: used for the day detail panel
   const leaveByDay = useMemo(() => {
     const map: Record<string, LeaveEvent[]> = {}
@@ -376,16 +517,8 @@ export function CalendarPage() {
   const dayTasks     = tasksByDay[selectedDayStr]     ?? []
   const dayReminders = remindersByDay[selectedDayStr] ?? []
   const dayGcal      = gcalByDay[selectedDayStr]      ?? []
+  const dayMsCal     = mscalByDay[selectedDayStr]     ?? []
   const dayLeave     = leaveByDay[selectedDayStr]     ?? []
-
-  const getDotsForDay = (day: Date) => {
-    const d = format(day, 'yyyy-MM-dd')
-    return {
-      hasTasks:     !!tasksByDay[d]?.length,
-      hasReminders: !!remindersByDay[d]?.length,
-      hasGcal:      !!gcalByDay[d]?.length,
-    }
-  }
 
   // ── Week-based event bars (Apple Calendar architecture) ───────────────────
   // Each leave event is ONE bar spanning its full column range per week.
@@ -455,33 +588,55 @@ export function CalendarPage() {
 
   // ── Calendar picker ───────────────────────────────────────────────────────
 
-  const calendarPicker = gcal.isConnected && calendars && calendars.length > 0 ? (
+  const hasAnyCalendars = (gcal.isConnected && calendars && calendars.length > 0) ||
+                          (mscal.isConnected && msCalendars && msCalendars.length > 0)
+
+  const calendarPicker = hasAnyCalendars ? (
     <div className="mb-4 card-glass p-3">
       <div className="flex items-center justify-between mb-2">
         <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Calendars</p>
-        {gcalLoading && <Loader2 size={12} className="text-emerald-400 animate-spin" />}
+        <div className="flex items-center gap-2">
+          {gcalLoading  && <Loader2 size={12} className="text-emerald-400 animate-spin" />}
+          {msCalLoading && <Loader2 size={12} className="text-sky-400 animate-spin" />}
+        </div>
       </div>
       <div className="flex flex-wrap gap-2">
-        {calendars.map(cal => {
+        {/* Google calendars */}
+        {(calendars ?? []).map(cal => {
           const isOn = selectedCalIds?.has(cal.id) ?? true
           return (
             <button
-              key={cal.id}
+              key={`g-${cal.id}`}
               onClick={() => toggleCalendar(cal.id)}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
-                isOn ? 'opacity-100' : 'opacity-35'
-              }`}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${isOn ? 'opacity-100' : 'opacity-35'}`}
               style={{
                 background: isOn ? `${cal.backgroundColor}22` : 'rgba(255,255,255,0.05)',
                 border: `1px solid ${isOn ? cal.backgroundColor + '66' : 'rgba(255,255,255,0.08)'}`,
                 color: isOn ? cal.backgroundColor : 'rgba(255,255,255,0.4)',
               }}
             >
-              <span
-                className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ background: cal.backgroundColor }}
-              />
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: cal.backgroundColor }} />
               {cal.summary}
+            </button>
+          )
+        })}
+        {/* Microsoft calendars */}
+        {(msCalendars ?? []).map(cal => {
+          const isOn = selectedMsCalIds?.has(cal.id) ?? true
+          const color = cal.hexColor || '#38bdf8'
+          return (
+            <button
+              key={`ms-${cal.id}`}
+              onClick={() => toggleMsCalendar(cal.id)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${isOn ? 'opacity-100' : 'opacity-35'}`}
+              style={{
+                background: isOn ? `${color}22` : 'rgba(255,255,255,0.05)',
+                border: `1px solid ${isOn ? color + '66' : 'rgba(255,255,255,0.08)'}`,
+                color: isOn ? color : 'rgba(255,255,255,0.4)',
+              }}
+            >
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+              {cal.name}
             </button>
           )
         })}
@@ -530,11 +685,10 @@ export function CalendarPage() {
               {/* ── Day cell row ── */}
               <div className="absolute inset-0 grid grid-cols-7">
                 {weekDays.map(day => {
-                  const { hasTasks, hasReminders, hasGcal } = getDotsForDay(day)
+                  const d          = format(day, 'yyyy-MM-dd')
                   const inMonth    = isSameMonth(day, currentMonth)
                   const isSelected = isSameDay(day, selectedDay)
                   const isTodayDay = isToday(day)
-                  const hasLeave   = !!leaveByDay[format(day, 'yyyy-MM-dd')]?.length
 
                   return (
                     <motion.div
@@ -558,11 +712,12 @@ export function CalendarPage() {
 
                       {/* Indicator dots */}
                       <div className="flex gap-0.5 mt-0.5 h-1">
-                        {hasTasks     && <div className="w-1 h-1 rounded-full bg-accent" />}
-                        {hasReminders && <div className="w-1 h-1 rounded-full bg-status-warning" />}
-                        {hasGcal      && <div className="w-1 h-1 rounded-full bg-emerald-400" />}
+                        {!!tasksByDay[d]?.length     && <div className="w-1 h-1 rounded-full bg-accent" />}
+                        {!!remindersByDay[d]?.length && <div className="w-1 h-1 rounded-full bg-status-warning" />}
+                        {!!gcalByDay[d]?.length      && <div className="w-1 h-1 rounded-full bg-emerald-400" />}
+                        {!!mscalByDay[d]?.length     && <div className="w-1 h-1 rounded-full bg-sky-400" />}
                         {/* Mobile only: violet dot for leave events */}
-                        {!isDesktop && hasLeave && (
+                        {!isDesktop && !!leaveByDay[d]?.length && (
                           <div className="w-1 h-1 rounded-full bg-violet-400" />
                         )}
                       </div>
@@ -637,6 +792,12 @@ export function CalendarPage() {
             <span className="text-[10px] text-text-tertiary">Google Cal</span>
           </div>
         )}
+        {mscal.isConnected && (
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-sky-400" />
+            <span className="text-[10px] text-text-tertiary">Outlook</span>
+          </div>
+        )}
         <div className="flex items-center gap-1.5">
           <div className="w-5 h-[5px] rounded-full bg-violet-400/70" />
           <span className="text-[10px] text-text-tertiary">Leave</span>
@@ -659,13 +820,18 @@ export function CalendarPage() {
           </button>
           {gcal.isConnected && (
             <button onClick={openGcalCreate} className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors">
-              <CalendarDays size={12} />Event
+              <CalendarDays size={12} />GCal
+            </button>
+          )}
+          {mscal.isConnected && (
+            <button onClick={openMsCalCreate} className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors">
+              <Mail size={12} />Outlook
             </button>
           )}
         </div>
       </div>
 
-      {dayTasks.length === 0 && dayReminders.length === 0 && dayGcal.length === 0 && dayLeave.length === 0 ? (
+      {dayTasks.length === 0 && dayReminders.length === 0 && dayGcal.length === 0 && dayMsCal.length === 0 && dayLeave.length === 0 ? (
         <p className="text-text-tertiary text-sm">Nothing scheduled.</p>
       ) : (
         <div className="space-y-2">
@@ -723,6 +889,33 @@ export function CalendarPage() {
             )
           })}
 
+          {/* Outlook / Microsoft Calendar events */}
+          {dayMsCal.map(event => {
+            const calColor = event.calendarId ? (msCalMap[event.calendarId]?.hexColor || '#38bdf8') : '#38bdf8'
+            const calName  = event.calendarId ? (msCalMap[event.calendarId]?.name ?? '') : ''
+            return (
+              <div
+                key={event.id}
+                className="card-glass p-3 flex items-start gap-3 cursor-pointer hover-bg transition-colors overflow-hidden"
+                onClick={() => openMsCalEdit(event)}
+                style={{ borderLeft: `3px solid ${calColor}` }}
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-text-primary truncate">{event.subject}</p>
+                  <p className="text-[10px] text-text-tertiary">
+                    {event.isAllDay ? 'All day' : (
+                      event.start.dateTime
+                        ? `${format(parseISO(event.start.dateTime), 'h:mm a')} – ${format(parseISO(event.end.dateTime), 'h:mm a')}`
+                        : ''
+                    )}
+                    {calName ? ` · ${calName}` : ''}
+                  </p>
+                </div>
+                <Pencil size={12} className="text-text-tertiary flex-shrink-0 mt-1 opacity-40" />
+              </div>
+            )
+          })}
+
           {/* Reminders */}
           {dayReminders.map(r => (
             <div key={r.id} className={`card-glass p-3 flex items-center gap-3 ${r.is_dismissed ? 'opacity-50' : ''}`}>
@@ -754,21 +947,33 @@ export function CalendarPage() {
     </>
   )
 
-  // ── Google Calendar connect banner ────────────────────────────────────────
+  // ── Connect banners ────────────────────────────────────────────────────────
 
   const gcalBanner = !gcal.isConnected ? (
-    <div className="mb-4 card-glass p-4 flex items-center justify-between gap-3">
+    <div className="mb-3 card-glass p-3 flex items-center justify-between gap-3">
       <div className="flex items-center gap-3">
-        <CalendarDays size={18} className="text-emerald-400 flex-shrink-0" />
+        <CalendarDays size={16} className="text-emerald-400 flex-shrink-0" />
         <div>
           <p className="text-sm font-medium text-text-primary">Connect Google Calendar</p>
-          <p className="text-xs text-text-tertiary">See and manage your Google events here</p>
+          <p className="text-xs text-text-tertiary">View and manage your Google events</p>
         </div>
       </div>
-      <button
-        onClick={() => gcal.connect()}
-        className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 text-xs font-medium hover:bg-emerald-500/25 transition-colors"
-      >
+      <button onClick={() => gcal.connect()} className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 text-xs font-medium hover:bg-emerald-500/25 transition-colors">
+        Connect
+      </button>
+    </div>
+  ) : null
+
+  const mscalBanner = !mscal.isConnected ? (
+    <div className="mb-3 card-glass p-3 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3">
+        <Mail size={16} className="text-sky-400 flex-shrink-0" />
+        <div>
+          <p className="text-sm font-medium text-text-primary">Connect Outlook / Office 365</p>
+          <p className="text-xs text-text-tertiary">View and manage your Microsoft events</p>
+        </div>
+      </div>
+      <button onClick={() => mscal.connect()} className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-sky-500/15 text-sky-400 text-xs font-medium hover:bg-sky-500/25 transition-colors">
         Connect
       </button>
     </div>
@@ -778,6 +983,15 @@ export function CalendarPage() {
 
   const headerButtons = (
     <div className="flex items-center gap-2">
+      {mscal.isConnected && (
+        <button
+          onClick={() => { void mscal.disconnect(); toast.success('Outlook disconnected') }}
+          className="p-1.5 rounded-lg text-sky-400/60 hover:text-sky-400 hover:bg-white/5 transition-colors"
+          title="Disconnect Outlook"
+        >
+          <Mail size={15} />
+        </button>
+      )}
       {gcal.isConnected && (
         <button
           onClick={() => { gcal.disconnect(); toast.success('Google Calendar disconnected') }}
@@ -907,6 +1121,7 @@ export function CalendarPage() {
               {headerButtons}
             </div>
             {gcalBanner}
+            {mscalBanner}
             {calendarPicker}
             {calendarGrid}
           </div>
@@ -925,6 +1140,7 @@ export function CalendarPage() {
             {headerButtons}
           </div>
           {gcalBanner}
+          {mscalBanner}
           {calendarPicker}
           <div className="mb-5">{calendarGrid}</div>
           <div className="mb-4" ref={dayDetailRef}>{dayDetailContent}</div>
@@ -952,8 +1168,70 @@ export function CalendarPage() {
       </PlatformSheet>
 
       {/* Google Calendar edit sheet */}
-      <PlatformSheet isOpen={gcalEditOpen} onClose={() => { setGcalEditOpen(false); setEditingEvent(null) }} title="Edit Event">
+      <PlatformSheet isOpen={gcalEditOpen} onClose={() => { setGcalEditOpen(false); setEditingEvent(null) }} title="Edit Google Event">
         {gcalFormContent(true)}
+      </PlatformSheet>
+
+      {/* Microsoft Calendar create sheet */}
+      <PlatformSheet isOpen={msCalCreateOpen} onClose={() => setMsCalCreateOpen(false)} title="New Outlook Event">
+        <div className="space-y-3 pb-4">
+          <input type="text" placeholder="Event title" value={msCalForm.summary} onChange={e => setMsCalForm(f => ({ ...f, summary: e.target.value }))} className={inputClass} autoFocus />
+          <textarea placeholder="Description (optional)" value={msCalForm.description} onChange={e => setMsCalForm(f => ({ ...f, description: e.target.value }))} className={`${inputClass} resize-none`} rows={2} />
+          <label className="flex items-center gap-3 cursor-pointer">
+            <div onClick={() => setMsCalForm(f => ({ ...f, allDay: !f.allDay }))} className={`w-10 h-5 rounded-full transition-colors relative ${msCalForm.allDay ? 'bg-accent' : 'bg-white/15'}`}>
+              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${msCalForm.allDay ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </div>
+            <span className="text-sm text-text-secondary">All day</span>
+          </label>
+          {msCalForm.allDay ? (
+            <>
+              <div><label className="text-xs text-text-tertiary block mb-1">Start date</label><input type="date" value={msCalForm.start.slice(0, 10)} onChange={e => setMsCalForm(f => ({ ...f, start: e.target.value }))} className={inputClass} /></div>
+              <div><label className="text-xs text-text-tertiary block mb-1">End date</label><input type="date" value={msCalForm.end.slice(0, 10)} onChange={e => setMsCalForm(f => ({ ...f, end: e.target.value }))} className={inputClass} /></div>
+            </>
+          ) : (
+            <>
+              <div><label className="text-xs text-text-tertiary block mb-1">Start</label><input type="datetime-local" value={msCalForm.start} onChange={e => setMsCalForm(f => ({ ...f, start: e.target.value }))} className={inputClass} /></div>
+              <div><label className="text-xs text-text-tertiary block mb-1">End</label><input type="datetime-local" value={msCalForm.end} onChange={e => setMsCalForm(f => ({ ...f, end: e.target.value }))} className={inputClass} /></div>
+            </>
+          )}
+          <button onClick={handleMsCalCreate} disabled={!msCalForm.summary.trim() || msCalSaving} className="w-full bg-sky-600 hover:bg-sky-500 text-white rounded-btn py-3 font-semibold text-sm transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+            {msCalSaving && <Loader2 size={15} className="animate-spin" />}
+            Create Event
+          </button>
+        </div>
+      </PlatformSheet>
+
+      {/* Microsoft Calendar edit sheet */}
+      <PlatformSheet isOpen={msCalEditOpen} onClose={() => { setMsCalEditOpen(false); setEditingMsEvent(null) }} title="Edit Outlook Event">
+        <div className="space-y-3 pb-4">
+          <input type="text" placeholder="Event title" value={msCalForm.summary} onChange={e => setMsCalForm(f => ({ ...f, summary: e.target.value }))} className={inputClass} autoFocus />
+          <textarea placeholder="Description (optional)" value={msCalForm.description} onChange={e => setMsCalForm(f => ({ ...f, description: e.target.value }))} className={`${inputClass} resize-none`} rows={2} />
+          <label className="flex items-center gap-3 cursor-pointer">
+            <div onClick={() => setMsCalForm(f => ({ ...f, allDay: !f.allDay }))} className={`w-10 h-5 rounded-full transition-colors relative ${msCalForm.allDay ? 'bg-accent' : 'bg-white/15'}`}>
+              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${msCalForm.allDay ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </div>
+            <span className="text-sm text-text-secondary">All day</span>
+          </label>
+          {msCalForm.allDay ? (
+            <>
+              <div><label className="text-xs text-text-tertiary block mb-1">Start date</label><input type="date" value={msCalForm.start.slice(0, 10)} onChange={e => setMsCalForm(f => ({ ...f, start: e.target.value }))} className={inputClass} /></div>
+              <div><label className="text-xs text-text-tertiary block mb-1">End date</label><input type="date" value={msCalForm.end.slice(0, 10)} onChange={e => setMsCalForm(f => ({ ...f, end: e.target.value }))} className={inputClass} /></div>
+            </>
+          ) : (
+            <>
+              <div><label className="text-xs text-text-tertiary block mb-1">Start</label><input type="datetime-local" value={msCalForm.start} onChange={e => setMsCalForm(f => ({ ...f, start: e.target.value }))} className={inputClass} /></div>
+              <div><label className="text-xs text-text-tertiary block mb-1">End</label><input type="datetime-local" value={msCalForm.end} onChange={e => setMsCalForm(f => ({ ...f, end: e.target.value }))} className={inputClass} /></div>
+            </>
+          )}
+          <button onClick={handleMsCalUpdate} disabled={!msCalForm.summary.trim() || msCalSaving} className="w-full bg-sky-600 hover:bg-sky-500 text-white rounded-btn py-3 font-semibold text-sm transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+            {msCalSaving && <Loader2 size={15} className="animate-spin" />}
+            Save Changes
+          </button>
+          <button onClick={handleMsCalDelete} disabled={msCalDeleting} className="w-full bg-status-error/10 hover:bg-status-error/20 text-status-error rounded-btn py-3 font-semibold text-sm transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+            {msCalDeleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+            Delete Event
+          </button>
+        </div>
       </PlatformSheet>
     </>
   )
