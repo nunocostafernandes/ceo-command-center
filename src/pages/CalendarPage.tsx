@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, Bell, Check, Plus, CalendarDays, Trash2, Pencil, LogOut, Loader2, Palmtree } from 'lucide-react'
@@ -67,6 +67,16 @@ export function CalendarPage() {
 
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [selectedDay, setSelectedDay]   = useState(new Date())
+  const dayDetailRef = useRef<HTMLDivElement>(null)
+
+  const selectDay = (day: Date, scrollToDetail = false) => {
+    setSelectedDay(day)
+    if (scrollToDetail) {
+      setTimeout(() => {
+        dayDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 50)
+    }
+  }
 
   // Which calendar IDs are toggled on — null means "not yet initialized"
   const [selectedCalIds, setSelectedCalIds] = useState<Set<string> | null>(null)
@@ -456,7 +466,7 @@ export function CalendarPage() {
             <motion.button
               key={day.toISOString()}
               whileTap={{ scale: 0.9 }}
-              onClick={() => setSelectedDay(day)}
+              onClick={() => selectDay(day, true)}
               className={`relative flex flex-col items-center rounded-xl transition-colors ${
                 isDesktop ? 'min-h-[96px] justify-start pt-1.5' : 'min-h-[48px] justify-center'
               } hover:bg-white/[0.04] ${isSelected ? 'bg-white/[0.07]' : ''}`}
@@ -510,12 +520,13 @@ export function CalendarPage() {
                     </div>
                   ))}
                   {leaveBarItems.length > 2 && (
-                    <span
-                      className="absolute text-[8px] text-text-tertiary leading-none"
+                    <button
+                      onClick={e => { e.stopPropagation(); selectDay(day, true) }}
+                      className="absolute text-[8px] font-medium text-violet-400 hover:text-violet-300 leading-none transition-colors"
                       style={{ top: `${38 + 2 * 18 + 2}px`, left: '5px' }}
                     >
                       +{leaveBarItems.length - 2} more
-                    </span>
+                    </button>
                   )}
                 </>
               )}
@@ -831,7 +842,7 @@ export function CalendarPage() {
           {gcalBanner}
           {calendarPicker}
           <div className="mb-5">{calendarGrid}</div>
-          <div className="mb-4">{dayDetailContent}</div>
+          <div className="mb-4" ref={dayDetailRef}>{dayDetailContent}</div>
         </div>
       )}
 
