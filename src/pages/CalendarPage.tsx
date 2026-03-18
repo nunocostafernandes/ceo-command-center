@@ -33,6 +33,11 @@ import type { Task, Reminder } from '@/types/database'
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
+// Calendar bar rendering constants
+const BAR_H   = 18  // px height per bar row
+const DAY_H   = 40  // px for date number + dots row
+const MAX_VIS = 2   // max bar rows before "+N more"
+
 function localToISO(localStr: string): string {
   if (!localStr) return ''
   return new Date(localStr).toISOString()
@@ -50,6 +55,16 @@ interface GCalForm {
   end: string
   allDay: boolean
   calendarId: string
+}
+
+// Single event bar spanning one or more columns within a week row
+interface EventBar {
+  event: LeaveEvent
+  colStart: number    // 0–6
+  colSpan: number
+  row: number         // vertical slot (0 = topmost)
+  isEventStart: boolean
+  isEventEnd: boolean
 }
 
 const emptyGCalForm = (defaultDate?: Date, calendarId = 'primary'): GCalForm => {
@@ -108,7 +123,7 @@ export function CalendarPage() {
     queryKey: ['gcal-calendars', gcal.isConnected],
     queryFn:  () => gcal.fetchCalendars(),
     enabled:  gcal.isConnected,
-    staleTime: 1000 * 60 * 60, // 1 hour — calendar list rarely changes
+    staleTime: 1000 * 60 * 60,
   })
 
   // Initialize selectedCalIds to all calendars on first load
@@ -178,7 +193,7 @@ export function CalendarPage() {
       if (!res.ok) return { events: [] as LeaveEvent[] }
       return res.json() as Promise<{ events: LeaveEvent[] }>
     },
-    staleTime: 1000 * 60 * 30, // 30 min
+    staleTime: 1000 * 60 * 30,
   })
   const leaveEvents = leaveData?.events ?? []
 
@@ -292,7 +307,7 @@ export function CalendarPage() {
     setSelectedCalIds(prev => {
       const next = new Set(prev ?? [])
       if (next.has(calId)) {
-        if (next.size === 1) return prev // keep at least one selected
+        if (next.size === 1) return prev
         next.delete(calId)
       } else {
         next.add(calId)
@@ -336,12 +351,12 @@ export function CalendarPage() {
     return map
   }, [gcalEvents])
 
+  // leaveByDay: used for the day detail panel
   const leaveByDay = useMemo(() => {
     const map: Record<string, LeaveEvent[]> = {}
     for (const e of leaveEvents) {
       const startDate = e.start.slice(0, 10)
       const endDate   = e.end.slice(0, 10)
-      // Always expand across all days the event touches
       if (startDate !== endDate) {
         const cur = new Date(startDate)
         const end = new Date(endDate)
@@ -373,18 +388,62 @@ export function CalendarPage() {
     }
   }
 
-  // Returns bar metadata for leave events on a given day
-  const getLeaveBarItems = (day: Date) => {
-    const d   = format(day, 'yyyy-MM-dd')
-    const dow = day.getDay() // 0 = Sun, 6 = Sat
-    return (leaveByDay[d] ?? []).map(e => {
-      const isEventStart = e.start.slice(0, 10) === d
-      const isEventEnd   = e.end.slice(0, 10)   === d
-      const barStart = isEventStart || dow === 0
-      const barEnd   = isEventEnd   || dow === 6
-      return { event: e, barStart, barEnd }
+  // ── Week-based event bars (Apple Calendar architecture) ───────────────────
+  // Each leave event is ONE bar spanning its full column range per week.
+  // Bars are rendered at the week level (not inside day cells) so alignment
+  // is guaranteed to be pixel-perfect across all columns.
+
+  const weeksData = useMemo(() => {
+    const weekArrays: Date[][] = []
+    for (let i = 0; i < calDays.length; i += 7) {
+      weekArrays.push(calDays.slice(i, i + 7))
+    }
+
+    return weekArrays.map(weekDays => {
+      const weekStartStr = format(weekDays[0]!, 'yyyy-MM-dd')
+      const weekEndStr   = format(weekDays[6]!, 'yyyy-MM-dd')
+
+      // Collect all leave events that overlap this week
+      const candidates: Omit<EventBar, 'row'>[] = []
+      for (const e of leaveEvents) {
+        const eventStart = e.start.slice(0, 10)
+        const eventEnd   = e.end.slice(0, 10)
+        if (eventStart > weekEndStr || eventEnd < weekStartStr) continue
+
+        const clampedStart = eventStart < weekStartStr ? weekStartStr : eventStart
+        const clampedEnd   = eventEnd   > weekEndStr   ? weekEndStr   : eventEnd
+
+        const colStart = weekDays.findIndex(d => format(d, 'yyyy-MM-dd') === clampedStart)
+        const colEnd   = weekDays.findIndex(d => format(d, 'yyyy-MM-dd') === clampedEnd)
+        if (colStart === -1 || colEnd === -1) continue
+
+        candidates.push({
+          event: e,
+          colStart,
+          colSpan: colEnd - colStart + 1,
+          isEventStart: eventStart >= weekStartStr,
+          isEventEnd:   eventEnd   <= weekEndStr,
+        })
+      }
+
+      // Sort: earlier start first, longer span first
+      candidates.sort((a, b) => a.colStart - b.colStart || b.colSpan - a.colSpan)
+
+      // Greedy row assignment — find the first row with no column overlap
+      const bars: EventBar[] = []
+      for (const c of candidates) {
+        let row = 0
+        while (bars.some(b =>
+          b.row === row &&
+          b.colStart < c.colStart + c.colSpan &&
+          b.colStart + b.colSpan > c.colStart
+        )) row++
+        bars.push({ ...c, row })
+      }
+
+      return { weekDays, bars }
     })
-  }
+  }, [calDays, leaveEvents])
 
   // ── Input style ───────────────────────────────────────────────────────────
 
@@ -447,90 +506,149 @@ export function CalendarPage() {
       </div>
 
       {/* Day labels */}
-      <div className="grid grid-cols-7 mb-2">
+      <div className="grid grid-cols-7 mb-1">
         {DAY_LABELS.map(d => (
           <div key={d} className="text-center text-[10px] font-semibold text-text-tertiary py-1">{d}</div>
         ))}
       </div>
 
-      {/* Day cells */}
-      <div className="grid grid-cols-7">
-        {calDays.map(day => {
-          const { hasTasks, hasReminders, hasGcal } = getDotsForDay(day)
-          const leaveBarItems = getLeaveBarItems(day)
-          const inMonth    = isSameMonth(day, currentMonth)
-          const isSelected = isSameDay(day, selectedDay)
-          const isTodayDay = isToday(day)
+      {/* Week rows — Apple Calendar architecture */}
+      <div className="flex flex-col">
+        {weeksData.map(({ weekDays, bars }, wi) => {
+          // Determine cell height based on how many bar rows are visible
+          const maxBarRow = bars.length > 0 ? Math.max(...bars.map(b => b.row)) : -1
+          const visibleBarRows = Math.min(MAX_VIS, maxBarRow + 1)
+          const hasOverflow = maxBarRow >= MAX_VIS
+
+          // Desktop: date row + bar rows + optional overflow label row
+          // Mobile: fixed compact height (dots only)
+          const cellH = isDesktop
+            ? DAY_H + visibleBarRows * BAR_H + (hasOverflow ? 14 : 4)
+            : 48
+
+          // Per-column hidden event count (for "+N more" indicators)
+          const hiddenCounts = new Array(7).fill(0) as number[]
+          for (const bar of bars) {
+            if (bar.row >= MAX_VIS) {
+              for (let c = bar.colStart; c < bar.colStart + bar.colSpan; c++) {
+                hiddenCounts[c] = (hiddenCounts[c] ?? 0) + 1
+              }
+            }
+          }
 
           return (
-            <motion.div
-              key={day.toISOString()}
-              whileTap={{ scale: 0.9 }}
-              onClick={() => selectDay(day, true)}
-              className={`relative flex flex-col items-center rounded-xl transition-colors cursor-pointer ${
-                isDesktop ? 'min-h-[96px] justify-start pt-1.5' : 'min-h-[48px] justify-center'
-              } hover:bg-white/[0.04] ${isSelected ? 'bg-white/[0.07]' : ''}`}
-            >
-              {/* Date number — Apple-style circle */}
-              <span className={`relative z-10 flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold flex-shrink-0 ${
-                isSelected  ? 'bg-accent text-white'
-                : isTodayDay ? 'bg-white text-[#020203]'
-                : inMonth    ? 'text-text-primary'
-                :              'text-text-tertiary'
-              }`}>
-                {format(day, 'd')}
-              </span>
+            <div key={wi} className="relative" style={{ height: `${cellH}px` }}>
 
-              {/* Dots: tasks / reminders / gcal */}
-              <div className="flex gap-0.5 mt-0.5 h-1 z-10">
-                {hasTasks     && <div className="w-1 h-1 rounded-full bg-accent" />}
-                {hasReminders && <div className="w-1 h-1 rounded-full bg-status-warning" />}
-                {hasGcal      && <div className="w-1 h-1 rounded-full bg-emerald-400" />}
-                {/* Mobile only: violet dot for leave */}
-                {!isDesktop && leaveBarItems.length > 0 && (
-                  <div className="w-1 h-1 rounded-full bg-violet-400" />
-                )}
+              {/* ── Day cell row ── */}
+              <div className="absolute inset-0 grid grid-cols-7">
+                {weekDays.map(day => {
+                  const { hasTasks, hasReminders, hasGcal } = getDotsForDay(day)
+                  const inMonth    = isSameMonth(day, currentMonth)
+                  const isSelected = isSameDay(day, selectedDay)
+                  const isTodayDay = isToday(day)
+                  const hasLeave   = !!leaveByDay[format(day, 'yyyy-MM-dd')]?.length
+
+                  return (
+                    <motion.div
+                      key={day.toISOString()}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => selectDay(day, true)}
+                      className={`relative flex flex-col items-center pt-1.5 rounded-xl cursor-pointer transition-colors hover:bg-white/[0.04] ${
+                        isSelected ? 'bg-white/[0.07]' : ''
+                      }`}
+                      style={{ height: `${cellH}px` }}
+                    >
+                      {/* Date number — Apple-style circle */}
+                      <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold flex-shrink-0 ${
+                        isSelected  ? 'bg-accent text-white'
+                        : isTodayDay ? 'bg-white text-[#020203]'
+                        : inMonth    ? 'text-text-primary'
+                        :              'text-text-tertiary'
+                      }`}>
+                        {format(day, 'd')}
+                      </span>
+
+                      {/* Indicator dots */}
+                      <div className="flex gap-0.5 mt-0.5 h-1">
+                        {hasTasks     && <div className="w-1 h-1 rounded-full bg-accent" />}
+                        {hasReminders && <div className="w-1 h-1 rounded-full bg-status-warning" />}
+                        {hasGcal      && <div className="w-1 h-1 rounded-full bg-emerald-400" />}
+                        {/* Mobile only: violet dot for leave events */}
+                        {!isDesktop && hasLeave && (
+                          <div className="w-1 h-1 rounded-full bg-violet-400" />
+                        )}
+                      </div>
+                    </motion.div>
+                  )
+                })}
               </div>
 
-              {/* Desktop: Apple Calendar-style event chips with title */}
-              {isDesktop && (
-                <>
-                  {leaveBarItems.slice(0, 2).map(({ event, barStart, barEnd }, i) => (
-                    <div
-                      key={event.id}
-                      className="absolute overflow-hidden"
-                      style={{
-                        top:    `${38 + i * 18}px`,
-                        height: '15px',
-                        left:   barStart ? '3px' : '0',
-                        right:  barEnd   ? '3px' : '0',
-                        background: 'rgba(109, 40, 217, 0.30)',
-                        borderRadius: (barStart && barEnd) ? '6px'
-                          : barStart ? '6px 0 0 6px'
-                          : barEnd   ? '0 6px 6px 0'
-                          : '0',
-                      }}
-                    >
-                      {/* Show title only on the first visible column of each week */}
-                      {barStart && (
-                        <span className="absolute inset-0 flex items-center px-1.5 text-[9px] font-medium text-violet-200 leading-none truncate whitespace-nowrap pointer-events-none">
-                          {event.summary}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                  {leaveBarItems.length > 2 && (
-                    <button
-                      onClick={e => { e.stopPropagation(); selectDay(day, true) }}
-                      className="absolute text-[8px] font-medium text-violet-400 hover:text-violet-300 leading-none transition-colors"
-                      style={{ top: `${38 + 2 * 18 + 2}px`, left: '5px' }}
-                    >
-                      +{leaveBarItems.length - 2} more
-                    </button>
-                  )}
-                </>
-              )}
-            </motion.div>
+              {/* ── Event bars overlay (desktop only) ── */}
+              {/* Bars are absolute-positioned at the WEEK level, not inside cells.
+                  This guarantees perfect horizontal alignment across all columns. */}
+              {isDesktop && bars.map(bar => {
+                if (bar.row >= MAX_VIS) return null
+
+                const barTop     = DAY_H + bar.row * BAR_H
+                const leftPct    = (bar.colStart / 7) * 100
+                const widthPct   = (bar.colSpan  / 7) * 100
+                const leftInset  = bar.isEventStart ? 3 : 0
+                const rightInset = bar.isEventEnd   ? 3 : 0
+
+                const borderRadius = bar.isEventStart && bar.isEventEnd ? '6px'
+                  : bar.isEventStart ? '6px 0 0 6px'
+                  : bar.isEventEnd   ? '0 6px 6px 0'
+                  : '0'
+
+                return (
+                  <div
+                    key={`${bar.event.id}-${wi}-${bar.colStart}`}
+                    className="absolute pointer-events-none overflow-hidden"
+                    style={{
+                      top:    `${barTop}px`,
+                      height: `${BAR_H - 2}px`,
+                      left:   `calc(${leftPct}% + ${leftInset}px)`,
+                      width:  `calc(${widthPct}% - ${leftInset + rightInset}px)`,
+                      background:   'rgba(109, 40, 217, 0.35)',
+                      borderRadius,
+                    }}
+                  >
+                    {/* Show title only at the start of the event (or week start if it continues from prev week) */}
+                    {bar.isEventStart && (
+                      <span className="absolute inset-0 flex items-center px-1.5 text-[9px] font-semibold text-violet-200 leading-none truncate whitespace-nowrap">
+                        {bar.event.summary}
+                      </span>
+                    )}
+                    {/* Continuation label when event wraps from previous week */}
+                    {!bar.isEventStart && (
+                      <span className="absolute inset-0 flex items-center px-1.5 text-[9px] text-violet-300/60 leading-none truncate whitespace-nowrap italic">
+                        {bar.event.summary}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+
+              {/* ── "+N more" overflow buttons (desktop only) ── */}
+              {isDesktop && hiddenCounts.map((count, colIdx) => {
+                if (!count) return null
+                const day = weekDays[colIdx]!
+                return (
+                  <button
+                    key={`overflow-${wi}-${colIdx}`}
+                    onClick={e => { e.stopPropagation(); selectDay(day, true) }}
+                    className="absolute text-[8px] font-semibold text-violet-400 hover:text-violet-300 transition-colors leading-none px-1 py-0.5 rounded hover:bg-violet-400/10"
+                    style={{
+                      top:  `${DAY_H + MAX_VIS * BAR_H + 1}px`,
+                      left: `calc(${(colIdx / 7) * 100}% + 4px)`,
+                    }}
+                  >
+                    +{count} more
+                  </button>
+                )
+              })}
+
+            </div>
           )
         })}
       </div>
@@ -586,7 +704,6 @@ export function CalendarPage() {
 
           {/* Leave calendar events */}
           {dayLeave.map(event => {
-            // Format readable date range
             const s = event.start.slice(0, 10)
             const e = event.end.slice(0, 10)
             const dateRange = s === e
