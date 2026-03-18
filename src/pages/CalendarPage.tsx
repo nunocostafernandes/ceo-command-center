@@ -109,9 +109,15 @@ export function CalendarPage() {
   // Which calendar IDs are toggled on — null means "not yet initialized"
   const [selectedCalIds, setSelectedCalIds] = useState<Set<string> | null>(null)
 
+  // Visibility toggles for task/reminder bars
+  const [showTasks,     setShowTasks]     = useState(true)
+  const [showReminders, setShowReminders] = useState(true)
+
   // Sheet states
   const [reminderSheetOpen, setReminderSheetOpen] = useState(false)
   const [reminderForm, setReminderForm] = useState({ title: '', remind_at: '' })
+  const [reminderDetailOpen, setReminderDetailOpen] = useState(false)
+  const [selectedReminder, setSelectedReminder] = useState<Reminder | null>(null)
 
   const [gcalCreateOpen, setGcalCreateOpen] = useState(false)
   const [gcalEditOpen, setGcalEditOpen]     = useState(false)
@@ -578,17 +584,21 @@ export function CalendarPage() {
       }
 
       // ── Tasks ─────────────────────────────────────────────────────────────
-      for (const t of tasks ?? []) {
-        if (!t.due_date) continue
-        push(t.id, t.title, t.due_date, t.due_date,
-          'rgba(94, 106, 210, 0.30)', '#a5b4fc', 'task', { taskItem: t })
+      if (showTasks) {
+        for (const t of tasks ?? []) {
+          if (!t.due_date) continue
+          push(t.id, t.title, t.due_date, t.due_date,
+            'rgba(94, 106, 210, 0.30)', '#a5b4fc', 'task', { taskItem: t })
+        }
       }
 
       // ── Reminders ─────────────────────────────────────────────────────────
-      for (const r of reminders ?? []) {
-        const d = r.remind_at.slice(0, 10)
-        push(r.id, r.title, d, d,
-          'rgba(251, 191, 36, 0.25)', '#fbbf24', 'reminder', { reminderItem: r })
+      if (showReminders) {
+        for (const r of reminders ?? []) {
+          const d = r.remind_at.slice(0, 10)
+          push(r.id, r.title, d, d,
+            'rgba(251, 191, 36, 0.25)', '#fbbf24', 'reminder', { reminderItem: r })
+        }
       }
 
       // ── Leave events ──────────────────────────────────────────────────────
@@ -648,7 +658,7 @@ export function CalendarPage() {
 
       return { weekDays, bars }
     })
-  }, [calDays, tasks, reminders, leaveEvents, gcalEvents, msCalEvents, calMap, msCalMap])
+  }, [calDays, tasks, reminders, showTasks, showReminders, leaveEvents, gcalEvents, msCalEvents, calMap, msCalMap])
 
   // ── Input style ───────────────────────────────────────────────────────────
 
@@ -778,6 +788,7 @@ export function CalendarPage() {
                       if (bar.type === 'gcal' && bar.gcalEvent) openGcalEdit(bar.gcalEvent)
                       else if (bar.type === 'mscal' && bar.msCalEvent) openMsCalEdit(bar.msCalEvent)
                       else if (bar.type === 'task' && bar.taskItem) navigate(`/tasks?task=${bar.taskItem.id}`)
+                      else if (bar.type === 'reminder' && bar.reminderItem) { setSelectedReminder(bar.reminderItem); setReminderDetailOpen(true) }
                       else selectDay(weekDays[bar.colStart]!, true)
                     } : undefined}
                   >
@@ -939,17 +950,17 @@ export function CalendarPage() {
 
           {/* Reminders */}
           {dayReminders.map(r => (
-            <div key={r.id} className={`card-glass p-3 flex items-center gap-3 ${r.is_dismissed ? 'opacity-50' : ''}`}>
+            <div
+              key={r.id}
+              className={`card-glass p-3 flex items-center gap-3 cursor-pointer hover-bg transition-colors ${r.is_dismissed ? 'opacity-50' : ''}`}
+              onClick={() => { setSelectedReminder(r); setReminderDetailOpen(true) }}
+            >
               <Bell size={15} className="text-status-warning flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className={`text-sm text-text-primary ${r.is_dismissed ? 'line-through' : ''}`}>{r.title}</p>
                 <p className="text-[10px] text-text-tertiary">{format(parseISO(r.remind_at), 'h:mm a')}</p>
               </div>
-              {!r.is_dismissed && (
-                <button onClick={() => dismissReminder.mutate(r.id)} className="p-1 rounded-lg hover:bg-white/10 transition-colors">
-                  <Check size={14} className="text-text-tertiary" />
-                </button>
-              )}
+              <span className="text-[10px] text-text-tertiary/40 flex-shrink-0">Open →</span>
             </div>
           ))}
 
@@ -988,6 +999,24 @@ export function CalendarPage() {
           Manage →
         </button>
       </div>
+
+      {/* Tasks toggle */}
+      <button
+        onClick={() => setShowTasks(v => !v)}
+        className="flex items-center gap-2 w-full py-1 rounded-lg hover:bg-white/[0.04] transition-all text-left"
+      >
+        <div className="w-3 h-3 rounded-sm flex-shrink-0 transition-opacity" style={{ background: 'rgba(94,106,210,0.8)', opacity: showTasks ? 1 : 0.2 }} />
+        <span className={`text-xs flex-1 transition-opacity ${showTasks ? 'text-text-secondary' : 'text-text-tertiary/40'}`}>Tasks</span>
+      </button>
+
+      {/* Reminders toggle */}
+      <button
+        onClick={() => setShowReminders(v => !v)}
+        className="flex items-center gap-2 w-full py-1 rounded-lg hover:bg-white/[0.04] transition-all text-left"
+      >
+        <div className="w-3 h-3 rounded-sm flex-shrink-0 transition-opacity" style={{ background: 'rgba(251,191,36,0.8)', opacity: showReminders ? 1 : 0.2 }} />
+        <span className={`text-xs flex-1 transition-opacity ${showReminders ? 'text-text-secondary' : 'text-text-tertiary/40'}`}>Reminders</span>
+      </button>
 
       {/* Leave — always on */}
       <div className="flex items-center gap-2 py-1">
@@ -1282,6 +1311,43 @@ export function CalendarPage() {
             Delete Event
           </button>
         </div>
+      </PlatformSheet>
+
+      {/* Reminder detail sheet */}
+      <PlatformSheet
+        isOpen={reminderDetailOpen}
+        onClose={() => { setReminderDetailOpen(false); setSelectedReminder(null) }}
+        title="Reminder"
+      >
+        {selectedReminder && (
+          <div className="space-y-4 pb-4">
+            <div className="card-glass p-4">
+              <p className="text-base font-medium text-text-primary">{selectedReminder.title}</p>
+              <p className="text-sm text-text-tertiary mt-1">
+                {format(parseISO(selectedReminder.remind_at), 'EEEE, MMMM d · h:mm a')}
+              </p>
+              {selectedReminder.is_dismissed && (
+                <span className="inline-flex items-center gap-1 mt-2 text-xs text-text-tertiary/60">
+                  <Check size={11} />Dismissed
+                </span>
+              )}
+            </div>
+            {!selectedReminder.is_dismissed && (
+              <button
+                onClick={() => {
+                  dismissReminder.mutate(selectedReminder.id)
+                  setReminderDetailOpen(false)
+                  setSelectedReminder(null)
+                }}
+                disabled={dismissReminder.isPending}
+                className="w-full bg-accent/15 hover:bg-accent/25 text-accent rounded-btn py-3 font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+              >
+                <Check size={15} />
+                Mark as Done
+              </button>
+            )}
+          </div>
+        )}
       </PlatformSheet>
     </>
   )
