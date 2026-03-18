@@ -1,3 +1,5 @@
 export { usePlatform } from './usePlatform'
 export { useKeyboardShortcut } from './useKeyboardShortcut'
 export { usePullToRefresh } from './usePullToRefresh'
+export { useGoogleCalendar } from './useGoogleCalendar'
+export type { GCalEvent } from './useGoogleCalendar'
