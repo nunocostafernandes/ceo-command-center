@@ -360,8 +360,20 @@ export function CalendarPage() {
       hasTasks:     !!tasksByDay[d]?.length,
       hasReminders: !!remindersByDay[d]?.length,
       hasGcal:      !!gcalByDay[d]?.length,
-      hasLeave:     !!leaveByDay[d]?.length,
     }
+  }
+
+  // Returns bar metadata for leave events on a given day
+  const getLeaveBarItems = (day: Date) => {
+    const d   = format(day, 'yyyy-MM-dd')
+    const dow = day.getDay() // 0 = Sun, 6 = Sat
+    return (leaveByDay[d] ?? []).map(e => {
+      const isEventStart = e.start.slice(0, 10) === d
+      const isEventEnd   = e.end.slice(0, 10)   === d
+      const barStart = isEventStart || dow === 0
+      const barEnd   = isEventEnd   || dow === 6
+      return { event: e, barStart, barEnd }
+    })
   }
 
   // ── Input style ───────────────────────────────────────────────────────────
@@ -434,7 +446,8 @@ export function CalendarPage() {
       {/* Day cells */}
       <div className="grid grid-cols-7 gap-y-1">
         {calDays.map(day => {
-          const { hasTasks, hasReminders, hasGcal, hasLeave } = getDotsForDay(day)
+          const { hasTasks, hasReminders, hasGcal } = getDotsForDay(day)
+          const leaveBarItems = getLeaveBarItems(day)
           const inMonth    = isSameMonth(day, currentMonth)
           const isSelected = isSameDay(day, selectedDay)
           const isTodayDay = isToday(day)
@@ -458,8 +471,26 @@ export function CalendarPage() {
                 {hasTasks     && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-accent'}`} />}
                 {hasReminders && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-status-warning'}`} />}
                 {hasGcal      && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-emerald-400'}`} />}
-                {hasLeave     && <div className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/70' : 'bg-violet-400'}`} />}
               </div>
+
+              {/* Leave event continuous bars */}
+              {leaveBarItems.map(({ event, barStart, barEnd }, i) => (
+                <div
+                  key={event.id}
+                  className="absolute bg-violet-400/70"
+                  style={{
+                    bottom: `${4 + i * 7}px`,
+                    height: '5px',
+                    left:  barStart ? '6px' : '0',
+                    right: barEnd   ? '6px' : '0',
+                    borderRadius: (barStart && barEnd)
+                      ? '9999px'
+                      : barStart ? '9999px 0 0 9999px'
+                      : barEnd   ? '0 9999px 9999px 0'
+                      : '0',
+                  }}
+                />
+              ))}
             </motion.button>
           )
         })}
@@ -482,7 +513,7 @@ export function CalendarPage() {
           </div>
         )}
         <div className="flex items-center gap-1.5">
-          <div className="w-2 h-2 rounded-full bg-violet-400" />
+          <div className="w-5 h-[5px] rounded-full bg-violet-400/70" />
           <span className="text-[10px] text-text-tertiary">Leave</span>
         </div>
       </div>
