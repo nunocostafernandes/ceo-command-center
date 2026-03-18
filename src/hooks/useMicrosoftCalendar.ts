@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect } from 'react'
 import { PublicClientApplication, InteractionRequiredAuthError } from '@azure/msal-browser'
 import type { AccountInfo } from '@azure/msal-browser'
 
-const MS_CLIENT_ID = 'ad6812d7-c53f-41ae-a36d-4c4bcc22ff0f'
+const MS_CLIENT_ID = 'de61a296-aec6-4677-a94c-2f9dd9957e2b'
+const MS_TENANT_ID = 'd9107492-a3df-4dc6-97b9-880c66131e41'
 const GRAPH = 'https://graph.microsoft.com/v1.0'
 const SCOPES = ['Calendars.ReadWrite', 'User.Read']
 
@@ -31,7 +32,7 @@ export interface MSCalendar {
 const msalInstance = new PublicClientApplication({
   auth: {
     clientId: MS_CLIENT_ID,
-    authority: 'https://login.microsoftonline.com/common',
+    authority: `https://login.microsoftonline.com/${MS_TENANT_ID}`,
     redirectUri: window.location.origin,
   },
   cache: {
