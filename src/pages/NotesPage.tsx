@@ -603,6 +603,17 @@ function NoteEditorContent({ note, onSave, onDelete, onBack }: {
   const editorRef = useRef(editor)
   editorRef.current = editor
 
+  // Sync title + Tiptap content when the active note changes without a full
+  // remount. Works alongside the EditorErrorBoundary key (belt-and-suspenders):
+  // if the key remount fires, this effect runs on mount and is a no-op.
+  // If for any reason the remount is skipped, this effect catches the switch.
+  useEffect(() => {
+    setTitle(note?.title ?? '')
+    isDirtyRef.current = false
+    editorRef.current?.commands.setContent(safeContent(note?.content ?? null), false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note?.id])
+
   // Save on TRUE unmount only. triggerSave is stable ([] deps), so this
   // effect never re-runs mid-lifecycle — no spurious saves, no re-render loop.
   useEffect(() => {
