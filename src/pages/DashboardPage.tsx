@@ -14,90 +14,95 @@ import type { Task, Reminder, Note, Project } from '@/types/database'
 
 type NewsRegion = 'Middle East' | 'Europe' | 'USA'
 
-interface NewsItem {
+interface NewsArticle {
   title: string
-  link: string
-  pubDate: string
-  description: string
+  description: string | null
+  url: string
+  source: string
+  publishedAt: string
   region: NewsRegion
 }
 
-const FEEDS: { url: string; region: NewsRegion }[] = [
-  { url: 'https://feeds.bbci.co.uk/news/world/middle_east/rss.xml', region: 'Middle East' },
-  { url: 'https://feeds.bbci.co.uk/news/world/europe/rss.xml',      region: 'Europe' },
-  { url: 'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml', region: 'USA' },
-]
+const NEWS_PROXY = 'https://ledtmryhckvgdkkqqteh.supabase.co/functions/v1/news-proxy'
 
-async function fetchFeed(url: string, region: NewsRegion): Promise<NewsItem[]> {
-  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}&count=8`
-  const res = await fetch(apiUrl)
-  if (!res.ok) return []
-  const json = await res.json() as { items?: Array<{ title: string; link: string; pubDate: string; description: string }> }
-  return (json.items ?? []).map(item => ({
-    title: item.title,
-    link: item.link,
-    pubDate: item.pubDate,
-    description: item.description?.replace(/<[^>]*>/g, '').slice(0, 140) ?? '',
-    region,
-  }))
+async function fetchNews(): Promise<NewsArticle[]> {
+  const res = await fetch(NEWS_PROXY)
+  if (!res.ok) throw new Error('Failed to fetch news')
+  const json = await res.json() as { articles: NewsArticle[] }
+  return json.articles ?? []
 }
 
-async function fetchAllNews(): Promise<NewsItem[]> {
-  const results = await Promise.allSettled(FEEDS.map(f => fetchFeed(f.url, f.region)))
-  const all: NewsItem[] = []
-  results.forEach(r => { if (r.status === 'fulfilled') all.push(...r.value) })
-  return all.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime())
+// Region visual config — colour-coded but badge always has text (not colour-only)
+const REGION_STYLE: Record<NewsRegion, { badge: string; dot: string }> = {
+  'Middle East': { badge: 'bg-amber-500/15 text-amber-400 border border-amber-500/20',  dot: 'bg-amber-500' },
+  'Europe':      { badge: 'bg-blue-500/15  text-blue-400  border border-blue-500/20',   dot: 'bg-blue-500'  },
+  'USA':         { badge: 'bg-red-500/15   text-red-400   border border-red-500/20',    dot: 'bg-red-500'   },
 }
 
-const REGION_COLORS: Record<NewsRegion, string> = {
-  'Middle East': 'bg-amber-500/15 text-amber-400',
-  'Europe':      'bg-blue-500/15 text-blue-400',
-  'USA':         'bg-red-500/15 text-red-400',
+// Fixed-height skeleton card — reserves exactly the same space as a real card
+function NewsCardSkeleton() {
+  return (
+    <div className="card-glass p-4 flex flex-col gap-3 min-h-[148px]">
+      <div className="flex items-center justify-between gap-2">
+        <div className="skeleton h-4 w-20 rounded-full" />
+        <div className="skeleton h-3 w-12 rounded" />
+      </div>
+      <div className="skeleton h-4 w-full rounded" />
+      <div className="skeleton h-4 w-4/5 rounded" />
+      <div className="skeleton h-3 w-24 rounded mt-auto" />
+    </div>
+  )
 }
 
 function NewsSection() {
   const [regionFilter, setRegionFilter] = useState<NewsRegion | 'All'>('All')
 
-  const { data: news, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery({
+  const { data: articles, isLoading, isError, refetch, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ['world-news'],
-    queryFn: fetchAllNews,
-    staleTime: 1000 * 60 * 30, // 30 min
+    queryFn: fetchNews,
+    staleTime:  1000 * 60 * 30, // cache 30 min — NewsAPI free tier: 100 req/day
+    gcTime:     1000 * 60 * 60,
     retry: 1,
   })
 
-  const filtered = (news ?? []).filter(n => regionFilter === 'All' || n.region === regionFilter)
   const pills: (NewsRegion | 'All')[] = ['All', 'Middle East', 'Europe', 'USA']
+  const filtered = (articles ?? []).filter(a => regionFilter === 'All' || a.region === regionFilter)
 
   return (
     <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
+      {/* ── Section header ── */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2.5">
           <Newspaper size={14} className="text-text-tertiary" />
-          <h2 className="text-[11px] font-semibold text-text-tertiary uppercase tracking-widest">World News</h2>
+          <h2 className="text-[11px] font-semibold text-text-tertiary uppercase tracking-widest">
+            World Briefing
+          </h2>
           {dataUpdatedAt > 0 && (
-            <span className="text-[10px] text-text-tertiary opacity-50">
-              {formatDistanceToNow(new Date(dataUpdatedAt), { addSuffix: true })}
+            <span className="text-[10px] text-text-tertiary/40 hidden sm:inline">
+              Updated {formatDistanceToNow(new Date(dataUpdatedAt), { addSuffix: true })}
             </span>
           )}
         </div>
         <button
+          aria-label="Refresh news"
           onClick={() => void refetch()}
           disabled={isFetching}
-          className="p-1 rounded-lg hover:bg-white/5 text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-40"
+          className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/5 text-text-tertiary hover:text-text-secondary transition-colors disabled:opacity-40"
         >
           <RefreshCw size={13} className={isFetching ? 'animate-spin' : ''} />
         </button>
       </div>
 
-      {/* Region pills */}
-      <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-none pb-1">
+      {/* ── Region filter pills ── */}
+      <div className="flex gap-2 mb-5 overflow-x-auto scrollbar-none">
         {pills.map(p => (
           <button
             key={p}
             onClick={() => setRegionFilter(p)}
-            className={`flex-shrink-0 text-[11px] font-medium px-3 py-1 rounded-full transition-colors ${
-              regionFilter === p ? 'bg-accent text-white' : 'bg-white/5 text-text-secondary hover:bg-white/10'
+            className={`flex-shrink-0 text-[11px] font-medium px-3 py-1.5 rounded-full transition-colors ${
+              regionFilter === p
+                ? 'bg-accent text-white'
+                : 'bg-white/5 text-text-secondary hover:bg-white/10'
             }`}
           >
             {p}
@@ -105,44 +110,69 @@ function NewsSection() {
         ))}
       </div>
 
-      {/* Content */}
+      {/* ── Content grid ── */}
       {isLoading ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-          {[...Array(6)].map((_, i) => <SkeletonCard key={i} />)}
+        // Skeleton: reserve same grid space — prevents CLS
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {[...Array(9)].map((_, i) => <NewsCardSkeleton key={i} />)}
         </div>
-      ) : isError || !news?.length ? (
-        <p className="text-text-tertiary text-sm">Couldn't load news. Check your connection.</p>
+      ) : isError ? (
+        <div className="card-glass p-6 text-center">
+          <p className="text-text-secondary text-sm mb-2">Couldn't load news</p>
+          <button
+            onClick={() => void refetch()}
+            className="text-xs text-accent hover:text-accent/80 transition-colors"
+          >
+            Try again
+          </button>
+        </div>
       ) : filtered.length === 0 ? (
-        <p className="text-text-tertiary text-sm">No articles for this region.</p>
+        <p className="text-text-tertiary text-sm py-4">No articles for this region.</p>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-          {filtered.slice(0, 12).map((item, i) => (
-            <a
-              key={`${item.link}-${i}`}
-              href={item.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="card-glass p-4 flex flex-col gap-2 hover-lift hover-bg group cursor-pointer"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${REGION_COLORS[item.region]}`}>
-                  {item.region}
-                </span>
-                <ExternalLink size={12} className="text-text-tertiary opacity-0 group-hover:opacity-60 transition-opacity flex-shrink-0 mt-0.5" />
-              </div>
-              <p className="text-sm font-semibold text-text-primary leading-snug line-clamp-3">
-                {item.title}
-              </p>
-              {item.description && (
-                <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed">
-                  {item.description}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {filtered.slice(0, 9).map((article, i) => {
+            const style = REGION_STYLE[article.region]
+            return (
+              <a
+                key={`${article.url}-${i}`}
+                href={article.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="card-glass p-4 flex flex-col gap-2.5 min-h-[148px] hover-lift hover-bg group transition-colors"
+              >
+                {/* Top row: region badge + source + external link */}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${style.badge}`}>
+                    {article.region}
+                  </span>
+                  <div className="flex items-center gap-1.5 ml-auto min-w-0">
+                    <span className="text-[11px] text-text-tertiary truncate max-w-[100px]">{article.source}</span>
+                    <ExternalLink
+                      size={11}
+                      className="text-text-tertiary flex-shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
+                    />
+                  </div>
+                </div>
+
+                {/* Headline — 2-line clamp for consistent height */}
+                <p className="text-sm font-semibold text-text-primary leading-snug line-clamp-2 flex-1">
+                  {article.title}
                 </p>
-              )}
-              <p className="text-[10px] text-text-tertiary mt-auto">
-                {formatDistanceToNow(new Date(item.pubDate), { addSuffix: true })}
-              </p>
-            </a>
-          ))}
+
+                {/* Description snippet */}
+                {article.description && (
+                  <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed">
+                    {article.description}
+                  </p>
+                )}
+
+                {/* Timestamp */}
+                <p className="text-[10px] text-text-tertiary mt-auto">
+                  {formatDistanceToNow(new Date(article.publishedAt), { addSuffix: true })}
+                </p>
+              </a>
+            )
+          })}
         </div>
       )}
     </div>
