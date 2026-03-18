@@ -59,7 +59,7 @@ interface GCalForm {
 }
 
 // Single event bar spanning one or more columns within a week row
-type EventBarType = 'leave' | 'gcal' | 'mscal'
+type EventBarType = 'leave' | 'gcal' | 'mscal' | 'task' | 'reminder'
 interface EventBar {
   id: string
   label: string
@@ -73,6 +73,8 @@ interface EventBar {
   type: EventBarType
   gcalEvent?: GCalEvent
   msCalEvent?: MSCalEvent
+  taskItem?: Task
+  reminderItem?: Reminder
 }
 
 const emptyGCalForm = (defaultDate?: Date, calendarId = 'primary'): GCalForm => {
@@ -557,7 +559,7 @@ export function CalendarPage() {
         id: string, label: string,
         eventStart: string, eventEnd: string,
         color: string, textColor: string, type: EventBarType,
-        gcalEvent?: GCalEvent, msCalEvent?: MSCalEvent,
+        extras: Partial<Omit<EventBar, 'id'|'label'|'colStart'|'colSpan'|'row'|'isEventStart'|'isEventEnd'|'color'|'textColor'|'type'>> = {},
       ) => {
         if (eventStart > weekEndStr || eventEnd < weekStartStr) return
         const clampedStart = eventStart < weekStartStr ? weekStartStr : eventStart
@@ -569,8 +571,22 @@ export function CalendarPage() {
           id, label, colStart, colSpan: colEnd - colStart + 1,
           isEventStart: eventStart >= weekStartStr,
           isEventEnd:   eventEnd   <= weekEndStr,
-          color, textColor, type, gcalEvent, msCalEvent,
+          color, textColor, type, ...extras,
         })
+      }
+
+      // ── Tasks ─────────────────────────────────────────────────────────────
+      for (const t of tasks ?? []) {
+        if (!t.due_date) continue
+        push(t.id, t.title, t.due_date, t.due_date,
+          'rgba(94, 106, 210, 0.30)', '#a5b4fc', 'task', { taskItem: t })
+      }
+
+      // ── Reminders ─────────────────────────────────────────────────────────
+      for (const r of reminders ?? []) {
+        const d = r.remind_at.slice(0, 10)
+        push(r.id, r.title, d, d,
+          'rgba(251, 191, 36, 0.25)', '#fbbf24', 'reminder', { reminderItem: r })
       }
 
       // ── Leave events ──────────────────────────────────────────────────────
@@ -594,7 +610,7 @@ export function CalendarPage() {
         }
         const calColor = e.calendarId ? (calMap[e.calendarId]?.backgroundColor ?? '#34d399') : '#34d399'
         push(e.id, e.summary ?? '(No title)', eventStart, eventEnd,
-          `${calColor}33`, calColor, 'gcal', e)
+          `${calColor}33`, calColor, 'gcal', { gcalEvent: e })
       }
 
       // ── Microsoft Calendar events ─────────────────────────────────────────
@@ -610,7 +626,7 @@ export function CalendarPage() {
         }
         const calColor = e.calendarId ? (msCalMap[e.calendarId]?.hexColor || '#38bdf8') : '#38bdf8'
         push(e.id, e.subject ?? '(No title)', eventStart, eventEnd,
-          `${calColor}33`, calColor, 'mscal', undefined, e)
+          `${calColor}33`, calColor, 'mscal', { msCalEvent: e })
       }
 
       // Sort: earlier start first, longer span first
@@ -630,7 +646,7 @@ export function CalendarPage() {
 
       return { weekDays, bars }
     })
-  }, [calDays, leaveEvents, gcalEvents, msCalEvents, calMap, msCalMap])
+  }, [calDays, tasks, reminders, leaveEvents, gcalEvents, msCalEvents, calMap, msCalMap])
 
   // ── Input style ───────────────────────────────────────────────────────────
 
@@ -765,14 +781,16 @@ export function CalendarPage() {
                         {format(day, 'd')}
                       </span>
 
-                      {/* Indicator dots — tasks/reminders always; calendar events only on mobile (desktop shows bars) */}
-                      <div className="flex gap-0.5 mt-0.5 h-1">
-                        {!!tasksByDay[d]?.length     && <div className="w-1 h-1 rounded-full bg-accent" />}
-                        {!!remindersByDay[d]?.length && <div className="w-1 h-1 rounded-full bg-status-warning" />}
-                        {!isDesktop && !!gcalByDay[d]?.length  && <div className="w-1 h-1 rounded-full bg-emerald-400" />}
-                        {!isDesktop && !!mscalByDay[d]?.length && <div className="w-1 h-1 rounded-full bg-sky-400" />}
-                        {!isDesktop && !!leaveByDay[d]?.length && <div className="w-1 h-1 rounded-full bg-violet-400" />}
-                      </div>
+                      {/* Indicator dots — mobile only (desktop shows titled bars for everything) */}
+                      {!isDesktop && (
+                        <div className="flex gap-0.5 mt-0.5 h-1">
+                          {!!tasksByDay[d]?.length     && <div className="w-1 h-1 rounded-full bg-accent" />}
+                          {!!remindersByDay[d]?.length && <div className="w-1 h-1 rounded-full bg-status-warning" />}
+                          {!!gcalByDay[d]?.length      && <div className="w-1 h-1 rounded-full bg-emerald-400" />}
+                          {!!mscalByDay[d]?.length     && <div className="w-1 h-1 rounded-full bg-sky-400" />}
+                          {!!leaveByDay[d]?.length     && <div className="w-1 h-1 rounded-full bg-violet-400" />}
+                        </div>
+                      )}
                     </motion.div>
                   )
                 })}
@@ -787,7 +805,7 @@ export function CalendarPage() {
                 const widthPct   = (bar.colSpan  / 7) * 100
                 const leftInset  = bar.isEventStart ? 3 : 0
                 const rightInset = bar.isEventEnd   ? 3 : 0
-                const isClickable = bar.type === 'gcal' || bar.type === 'mscal'
+                const isClickable = bar.type !== 'leave'
 
                 const borderRadius = bar.isEventStart && bar.isEventEnd ? '6px'
                   : bar.isEventStart ? '6px 0 0 6px'
@@ -811,6 +829,7 @@ export function CalendarPage() {
                       e.stopPropagation()
                       if (bar.type === 'gcal' && bar.gcalEvent) openGcalEdit(bar.gcalEvent)
                       else if (bar.type === 'mscal' && bar.msCalEvent) openMsCalEdit(bar.msCalEvent)
+                      else selectDay(weekDays[bar.colStart]!, true)
                     } : undefined}
                   >
                     <span
@@ -832,11 +851,11 @@ export function CalendarPage() {
       {/* Legend */}
       <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.06] flex-wrap">
         <div className="flex items-center gap-1.5">
-          <div className="w-2 h-2 rounded-full bg-accent" />
+          <div className="w-5 h-[5px] rounded-sm" style={{ background: 'rgba(94,106,210,0.45)' }} />
           <span className="text-[10px] text-text-tertiary">Tasks</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-2 h-2 rounded-full bg-status-warning" />
+          <div className="w-5 h-[5px] rounded-sm" style={{ background: 'rgba(251,191,36,0.40)' }} />
           <span className="text-[10px] text-text-tertiary">Reminders</span>
         </div>
         {gcal.isConnected && (
