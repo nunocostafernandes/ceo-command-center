@@ -16,13 +16,16 @@ export interface Task {
   title: string
   description: string | null
   priority: 'urgent' | 'high' | 'medium' | 'low' | null
-  due_date: string | null
+  due_date: string | null        // "YYYY-MM-DD" text
+  due_time: string | null        // "HH:MM" or null
   is_completed: boolean
   completed_at: string | null
   sort_order: number
   project_id: string | null
   milestone_id: string | null
   assigned_to: string | null
+  tags: string[]                 // always an array, default []
+  series_id: string | null       // uuid or null
   created_at: string
   updated_at: string
 }
@@ -65,5 +68,20 @@ export interface Milestone {
   is_completed: boolean
   completed_at: string | null
   sort_order: number
+  created_at: string
+}
+
+export interface TaskSeries {
+  id: string
+  user_id: string
+  recurrence_type: 'daily' | 'weekly' | 'monthly' | 'yearly'
+  recurrence_interval: number
+  base_title: string
+  base_priority: 'urgent' | 'high' | 'medium' | 'low' | null
+  base_list_name: string
+  base_description: string | null
+  base_due_time: string | null   // "HH:MM" or null
+  base_tags: string[]
+  start_date: string             // "YYYY-MM-DD"
   created_at: string
 }
