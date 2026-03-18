@@ -588,8 +588,16 @@ export function CalendarPage() {
       if (showTasks) {
         for (const t of tasks ?? []) {
           if (!t.due_date) continue
-          push(t.id, t.title, t.due_date, t.due_date,
-            'rgba(94, 106, 210, 0.30)', '#a5b4fc', 'task', { taskItem: t })
+          push(
+            t.id,
+            t.due_time ? `${t.due_time} · ${t.title}` : t.title,
+            t.due_date,
+            t.due_date,
+            'rgba(94, 106, 210, 0.30)',
+            '#a5b4fc',
+            'task',
+            { taskItem: t },
+          )
         }
       }
 
