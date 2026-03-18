@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, Bell, Check, Plus, CalendarDays, Trash2, Pencil, LogOut, Loader2 } from 'lucide-react'
@@ -15,27 +15,21 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useGoogleCalendar } from '@/hooks/useGoogleCalendar'
-import type { GCalEvent } from '@/hooks/useGoogleCalendar'
+import type { GCalEvent, GCalCalendar } from '@/hooks/useGoogleCalendar'
 import { PlatformSheet } from '@/components/shared/PlatformSheet'
 import type { Task, Reminder } from '@/types/database'
 
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
-// Format a local datetime-local input value to ISO string
 function localToISO(localStr: string): string {
   if (!localStr) return ''
-  // datetime-local gives "2026-03-18T14:30" — add seconds + timezone
   return new Date(localStr).toISOString()
 }
 
-// Format ISO or date string to datetime-local input value
 function isoToLocal(iso: string | undefined): string {
   if (!iso) return ''
   try { return format(parseISO(iso), "yyyy-MM-dd'T'HH:mm") } catch { return '' }
 }
-
-
-// ── Google event form state ────────────────────────────────────────────────
 
 interface GCalForm {
   summary: string
@@ -43,15 +37,14 @@ interface GCalForm {
   start: string
   end: string
   allDay: boolean
+  calendarId: string
 }
 
-const emptyGCalForm = (defaultDate?: Date): GCalForm => {
-  const base = defaultDate ? format(defaultDate, "yyyy-MM-dd'T'09:00") : ''
+const emptyGCalForm = (defaultDate?: Date, calendarId = 'primary'): GCalForm => {
+  const base    = defaultDate ? format(defaultDate, "yyyy-MM-dd'T'09:00") : ''
   const baseEnd = defaultDate ? format(defaultDate, "yyyy-MM-dd'T'10:00") : ''
-  return { summary: '', description: '', start: base, end: baseEnd, allDay: false }
+  return { summary: '', description: '', start: base, end: baseEnd, allDay: false, calendarId }
 }
-
-// ── Main page ──────────────────────────────────────────────────────────────
 
 export function CalendarPage() {
   const { user } = useAuth()
@@ -61,18 +54,21 @@ export function CalendarPage() {
   const gcal = useGoogleCalendar()
 
   const [currentMonth, setCurrentMonth] = useState(new Date())
-  const [selectedDay, setSelectedDay] = useState(new Date())
+  const [selectedDay, setSelectedDay]   = useState(new Date())
+
+  // Which calendar IDs are toggled on — null means "not yet initialized"
+  const [selectedCalIds, setSelectedCalIds] = useState<Set<string> | null>(null)
 
   // Sheet states
   const [reminderSheetOpen, setReminderSheetOpen] = useState(false)
   const [reminderForm, setReminderForm] = useState({ title: '', remind_at: '' })
 
   const [gcalCreateOpen, setGcalCreateOpen] = useState(false)
-  const [gcalEditOpen, setGcalEditOpen] = useState(false)
-  const [gcalForm, setGcalForm] = useState<GCalForm>(emptyGCalForm)
-  const [editingEvent, setEditingEvent] = useState<GCalEvent | null>(null)
-  const [gcalSaving, setGcalSaving] = useState(false)
-  const [gcalDeleting, setGcalDeleting] = useState(false)
+  const [gcalEditOpen, setGcalEditOpen]     = useState(false)
+  const [gcalForm, setGcalForm]             = useState<GCalForm>(emptyGCalForm)
+  const [editingEvent, setEditingEvent]     = useState<GCalEvent | null>(null)
+  const [gcalSaving, setGcalSaving]         = useState(false)
+  const [gcalDeleting, setGcalDeleting]     = useState(false)
 
   // Calendar range
   const monthStart = startOfMonth(currentMonth)
@@ -83,6 +79,39 @@ export function CalendarPage() {
 
   const rangeStart = format(calStart, 'yyyy-MM-dd')
   const rangeEnd   = format(calEnd,   'yyyy-MM-dd')
+
+  // ── Fetch calendar list ───────────────────────────────────────────────────
+
+  const { data: calendars } = useQuery<GCalCalendar[]>({
+    queryKey: ['gcal-calendars', gcal.isConnected],
+    queryFn:  () => gcal.fetchCalendars(),
+    enabled:  gcal.isConnected,
+    staleTime: 1000 * 60 * 60, // 1 hour — calendar list rarely changes
+  })
+
+  // Initialize selectedCalIds to all calendars on first load
+  useEffect(() => {
+    if (calendars && selectedCalIds === null) {
+      setSelectedCalIds(new Set(calendars.map(c => c.id)))
+    }
+  }, [calendars, selectedCalIds])
+
+  // When disconnected, reset selection
+  useEffect(() => {
+    if (!gcal.isConnected) setSelectedCalIds(null)
+  }, [gcal.isConnected])
+
+  const activeCalIds = useMemo(() => {
+    if (!selectedCalIds) return ['primary']
+    return Array.from(selectedCalIds)
+  }, [selectedCalIds])
+
+  // Calendar lookup by ID
+  const calMap = useMemo(() => {
+    const m: Record<string, GCalCalendar> = {}
+    for (const c of calendars ?? []) m[c.id] = c
+    return m
+  }, [calendars])
 
   // ── Supabase queries ──────────────────────────────────────────────────────
 
@@ -110,11 +139,11 @@ export function CalendarPage() {
 
   // ── Google Calendar query ─────────────────────────────────────────────────
 
-  const gcalQueryKey = ['gcal-events', rangeStart, rangeEnd, gcal.isConnected]
+  const gcalQueryKey = ['gcal-events', rangeStart, rangeEnd, activeCalIds.join(',')]
   const { data: gcalEvents, isLoading: gcalLoading, refetch: refetchGcal } = useQuery({
     queryKey: gcalQueryKey,
-    queryFn: () => gcal.fetchEvents(`${rangeStart}T00:00:00Z`, `${rangeEnd}T23:59:59Z`),
-    enabled: gcal.isConnected,
+    queryFn:  () => gcal.fetchEvents(`${rangeStart}T00:00:00Z`, `${rangeEnd}T23:59:59Z`, activeCalIds),
+    enabled:  gcal.isConnected && activeCalIds.length > 0,
     staleTime: 1000 * 60 * 5,
   })
 
@@ -152,19 +181,25 @@ export function CalendarPage() {
 
   // ── Google Calendar handlers ──────────────────────────────────────────────
 
+  const primaryCalId = useMemo(() =>
+    calendars?.find(c => c.primary)?.id ?? 'primary',
+    [calendars]
+  )
+
   const openGcalCreate = () => {
-    setGcalForm(emptyGCalForm(selectedDay))
+    setGcalForm(emptyGCalForm(selectedDay, primaryCalId))
     setGcalCreateOpen(true)
   }
 
   const openGcalEdit = (event: GCalEvent) => {
     setEditingEvent(event)
     setGcalForm({
-      summary: event.summary ?? '',
+      summary:     event.summary ?? '',
       description: event.description ?? '',
-      start: event.allDay ? (event.start.date ?? '') : isoToLocal(event.start.dateTime),
-      end:   event.allDay ? (event.end.date ?? '')   : isoToLocal(event.end.dateTime),
-      allDay: !!event.allDay,
+      start:       event.allDay ? (event.start.date ?? '') : isoToLocal(event.start.dateTime),
+      end:         event.allDay ? (event.end.date ?? '')   : isoToLocal(event.end.dateTime),
+      allDay:      !!event.allDay,
+      calendarId:  event.calendarId ?? primaryCalId,
     })
     setGcalEditOpen(true)
   }
@@ -174,7 +209,7 @@ export function CalendarPage() {
     setGcalSaving(true)
     const start = gcalForm.allDay ? gcalForm.start.slice(0, 10) : localToISO(gcalForm.start)
     const end   = gcalForm.allDay ? gcalForm.end.slice(0, 10)   : localToISO(gcalForm.end)
-    const result = await gcal.createEvent(gcalForm.summary, start, end, gcalForm.description || undefined, gcalForm.allDay)
+    const result = await gcal.createEvent(gcalForm.summary, start, end, gcalForm.description || undefined, gcalForm.allDay, gcalForm.calendarId)
     setGcalSaving(false)
     if (result) {
       toast.success('Event created')
@@ -190,7 +225,7 @@ export function CalendarPage() {
     setGcalSaving(true)
     const start = gcalForm.allDay ? gcalForm.start.slice(0, 10) : localToISO(gcalForm.start)
     const end   = gcalForm.allDay ? gcalForm.end.slice(0, 10)   : localToISO(gcalForm.end)
-    const result = await gcal.updateEvent(editingEvent.id, gcalForm.summary, start, end, gcalForm.description || undefined, gcalForm.allDay)
+    const result = await gcal.updateEvent(editingEvent.id, gcalForm.summary, start, end, gcalForm.description || undefined, gcalForm.allDay, gcalForm.calendarId)
     setGcalSaving(false)
     if (result) {
       toast.success('Event updated')
@@ -205,7 +240,7 @@ export function CalendarPage() {
   const handleGcalDelete = async () => {
     if (!editingEvent) return
     setGcalDeleting(true)
-    const ok = await gcal.deleteEvent(editingEvent.id)
+    const ok = await gcal.deleteEvent(editingEvent.id, editingEvent.calendarId ?? primaryCalId)
     setGcalDeleting(false)
     if (ok) {
       toast.success('Event deleted')
@@ -215,6 +250,20 @@ export function CalendarPage() {
     } else {
       toast.error('Failed to delete event')
     }
+  }
+
+  // Toggle a calendar on/off
+  const toggleCalendar = (calId: string) => {
+    setSelectedCalIds(prev => {
+      const next = new Set(prev ?? [])
+      if (next.has(calId)) {
+        if (next.size === 1) return prev // keep at least one selected
+        next.delete(calId)
+      } else {
+        next.add(calId)
+      }
+      return next
+    })
   }
 
   // ── Data maps ─────────────────────────────────────────────────────────────
@@ -274,6 +323,42 @@ export function CalendarPage() {
     setReminderSheetOpen(true)
   }
 
+  // ── Calendar picker ───────────────────────────────────────────────────────
+
+  const calendarPicker = gcal.isConnected && calendars && calendars.length > 0 ? (
+    <div className="mb-4 card-glass p-3">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Calendars</p>
+        {gcalLoading && <Loader2 size={12} className="text-emerald-400 animate-spin" />}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {calendars.map(cal => {
+          const isOn = selectedCalIds?.has(cal.id) ?? true
+          return (
+            <button
+              key={cal.id}
+              onClick={() => toggleCalendar(cal.id)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                isOn ? 'opacity-100' : 'opacity-35'
+              }`}
+              style={{
+                background: isOn ? `${cal.backgroundColor}22` : 'rgba(255,255,255,0.05)',
+                border: `1px solid ${isOn ? cal.backgroundColor + '66' : 'rgba(255,255,255,0.08)'}`,
+                color: isOn ? cal.backgroundColor : 'rgba(255,255,255,0.4)',
+              }}
+            >
+              <span
+                className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ background: cal.backgroundColor }}
+              />
+              {cal.summary}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  ) : null
+
   // ── Calendar grid ─────────────────────────────────────────────────────────
 
   const calendarGrid = (
@@ -300,7 +385,7 @@ export function CalendarPage() {
       <div className="grid grid-cols-7 gap-y-1">
         {calDays.map(day => {
           const { hasTasks, hasReminders, hasGcal } = getDotsForDay(day)
-          const inMonth  = isSameMonth(day, currentMonth)
+          const inMonth    = isSameMonth(day, currentMonth)
           const isSelected = isSameDay(day, selectedDay)
           const isTodayDay = isToday(day)
 
@@ -329,7 +414,7 @@ export function CalendarPage() {
         })}
       </div>
 
-      {/* Google Calendar legend */}
+      {/* Legend */}
       {gcal.isConnected && (
         <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.06]">
           <div className="flex items-center gap-1.5">
@@ -375,26 +460,31 @@ export function CalendarPage() {
         <div className="space-y-2">
 
           {/* Google Calendar events */}
-          {dayGcal.map(event => (
-            <div
-              key={event.id}
-              className="card-glass p-3 flex items-start gap-3 cursor-pointer hover-bg transition-colors"
-              onClick={() => openGcalEdit(event)}
-            >
-              <CalendarDays size={15} className="text-emerald-400 flex-shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-text-primary truncate">{event.summary}</p>
-                <p className="text-[10px] text-text-tertiary">
-                  {event.allDay ? 'All day' : (
-                    event.start.dateTime
-                      ? `${format(parseISO(event.start.dateTime), 'h:mm a')} – ${format(parseISO(event.end.dateTime!), 'h:mm a')}`
-                      : ''
-                  )}
-                </p>
+          {dayGcal.map(event => {
+            const calColor = event.calendarId ? (calMap[event.calendarId]?.backgroundColor ?? '#34d399') : '#34d399'
+            const calName  = event.calendarId ? (calMap[event.calendarId]?.summary ?? '') : ''
+            return (
+              <div
+                key={event.id}
+                className="card-glass p-3 flex items-start gap-3 cursor-pointer hover-bg transition-colors overflow-hidden"
+                onClick={() => openGcalEdit(event)}
+                style={{ borderLeft: `3px solid ${calColor}` }}
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-text-primary truncate">{event.summary}</p>
+                  <p className="text-[10px] text-text-tertiary">
+                    {event.allDay ? 'All day' : (
+                      event.start.dateTime
+                        ? `${format(parseISO(event.start.dateTime), 'h:mm a')} – ${format(parseISO(event.end.dateTime!), 'h:mm a')}`
+                        : ''
+                    )}
+                    {calName ? ` · ${calName}` : ''}
+                  </p>
+                </div>
+                <Pencil size={12} className="text-text-tertiary flex-shrink-0 mt-1 opacity-40" />
               </div>
-              <Pencil size={12} className="text-text-tertiary flex-shrink-0 mt-1 opacity-40" />
-            </div>
-          ))}
+            )
+          })}
 
           {/* Reminders */}
           {dayReminders.map(r => (
@@ -460,7 +550,6 @@ export function CalendarPage() {
           <LogOut size={15} />
         </button>
       )}
-      {gcal.isConnected && gcalLoading && <Loader2 size={14} className="text-emerald-400 animate-spin" />}
       <button
         onClick={openReminderSheet}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition-colors"
@@ -495,6 +584,25 @@ export function CalendarPage() {
         className={`${inputClass} resize-none`}
         rows={2}
       />
+
+      {/* Calendar selector */}
+      {calendars && calendars.length > 1 && (
+        <div>
+          <label className="text-xs text-text-tertiary block mb-1">Calendar</label>
+          <select
+            value={gcalForm.calendarId}
+            onChange={e => setGcalForm(f => ({ ...f, calendarId: e.target.value }))}
+            className={inputClass}
+          >
+            {calendars
+              .filter(c => c.accessRole === 'owner' || c.accessRole === 'writer')
+              .map(c => (
+                <option key={c.id} value={c.id}>{c.summary}{c.primary ? ' (primary)' : ''}</option>
+              ))}
+          </select>
+        </div>
+      )}
+
       {/* All-day toggle */}
       <label className="flex items-center gap-3 cursor-pointer">
         <div
@@ -562,6 +670,7 @@ export function CalendarPage() {
               {headerButtons}
             </div>
             {gcalBanner}
+            {calendarPicker}
             {calendarGrid}
           </div>
 
@@ -579,6 +688,7 @@ export function CalendarPage() {
             {headerButtons}
           </div>
           {gcalBanner}
+          {calendarPicker}
           <div className="mb-5">{calendarGrid}</div>
           <div className="mb-4">{dayDetailContent}</div>
         </div>

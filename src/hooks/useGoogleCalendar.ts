@@ -11,6 +11,17 @@ export interface GCalEvent {
   colorId?: string
   htmlLink?: string
   allDay?: boolean
+  calendarId?: string   // which calendar this event belongs to
+  calendarColor?: string
+}
+
+export interface GCalCalendar {
+  id: string
+  summary: string
+  backgroundColor: string
+  foregroundColor: string
+  primary?: boolean
+  accessRole: string
 }
 
 interface StoredToken {
@@ -54,34 +65,66 @@ export function useGoogleCalendar() {
     setToken(null)
   }, [])
 
-  // Re-reads token from state, but we use the closure ref to avoid stale token
   const authHeader = useCallback(
     () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }),
     [token],
   )
 
-  const fetchEvents = useCallback(async (timeMin: string, timeMax: string): Promise<GCalEvent[]> => {
+  // Fetch all calendars in the user's account
+  const fetchCalendars = useCallback(async (): Promise<GCalCalendar[]> => {
     if (!token) return []
-    const params = new URLSearchParams({ timeMin, timeMax, singleEvents: 'true', orderBy: 'startTime', maxResults: '250' })
-    const res = await fetch(`${API}/calendars/primary/events?${params}`, { headers: authHeader() })
+    const res = await fetch(`${API}/users/me/calendarList?maxResults=50`, { headers: authHeader() })
     if (res.status === 401) { disconnect(); return [] }
     if (!res.ok) return []
-    const data = await res.json() as { items?: GCalEvent[] }
-    return (data.items ?? []).map(e => ({ ...e, allDay: !!e.start.date && !e.start.dateTime }))
+    const data = await res.json() as { items?: GCalCalendar[] }
+    return (data.items ?? []).filter(c =>
+      c.accessRole === 'owner' || c.accessRole === 'writer' || c.accessRole === 'reader'
+    )
+  }, [token, authHeader, disconnect])
+
+  // Fetch events from one or more calendars; merges and tags each event with calendarId/color
+  const fetchEvents = useCallback(async (
+    timeMin: string,
+    timeMax: string,
+    calendarIds: string[] = ['primary'],
+  ): Promise<GCalEvent[]> => {
+    if (!token) return []
+    const params = new URLSearchParams({ timeMin, timeMax, singleEvents: 'true', orderBy: 'startTime', maxResults: '250' })
+
+    const results = await Promise.all(
+      calendarIds.map(async (calId) => {
+        const res = await fetch(`${API}/calendars/${encodeURIComponent(calId)}/events?${params}`, { headers: authHeader() })
+        if (res.status === 401) { disconnect(); return [] }
+        if (!res.ok) return []
+        const data = await res.json() as { items?: GCalEvent[]; summary?: string }
+        return (data.items ?? []).map(e => ({
+          ...e,
+          allDay: !!e.start.date && !e.start.dateTime,
+          calendarId: calId,
+        }))
+      })
+    )
+
+    return results.flat().sort((a, b) => {
+      const at = a.start.dateTime ?? a.start.date ?? ''
+      const bt = b.start.dateTime ?? b.start.date ?? ''
+      return at.localeCompare(bt)
+    })
   }, [token, authHeader, disconnect])
 
   const createEvent = useCallback(async (
     summary: string,
-    start: string,   // ISO datetime or date
+    start: string,
     end: string,
     description?: string,
     allDay?: boolean,
+    calendarId = 'primary',
   ): Promise<GCalEvent | null> => {
     if (!token) return null
     const body = allDay
       ? { summary, description, start: { date: start.slice(0, 10) }, end: { date: end.slice(0, 10) } }
       : { summary, description, start: { dateTime: start }, end: { dateTime: end } }
-    const res = await fetch(`${API}/calendars/primary/events`, {
+    const res = await fetch(`${API}/calendars/${encodeURIComponent(calendarId)}/events`, {
       method: 'POST', headers: authHeader(), body: JSON.stringify(body),
     })
     if (!res.ok) return null
@@ -95,25 +138,26 @@ export function useGoogleCalendar() {
     end: string,
     description?: string,
     allDay?: boolean,
+    calendarId = 'primary',
   ): Promise<GCalEvent | null> => {
     if (!token) return null
     const body = allDay
       ? { summary, description, start: { date: start.slice(0, 10) }, end: { date: end.slice(0, 10) } }
       : { summary, description, start: { dateTime: start }, end: { dateTime: end } }
-    const res = await fetch(`${API}/calendars/primary/events/${id}`, {
+    const res = await fetch(`${API}/calendars/${encodeURIComponent(calendarId)}/events/${id}`, {
       method: 'PUT', headers: authHeader(), body: JSON.stringify(body),
     })
     if (!res.ok) return null
     return res.json() as Promise<GCalEvent>
   }, [token, authHeader])
 
-  const deleteEvent = useCallback(async (id: string): Promise<boolean> => {
+  const deleteEvent = useCallback(async (id: string, calendarId = 'primary'): Promise<boolean> => {
     if (!token) return false
-    const res = await fetch(`${API}/calendars/primary/events/${id}`, {
+    const res = await fetch(`${API}/calendars/${encodeURIComponent(calendarId)}/events/${id}`, {
       method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
     })
     return res.ok || res.status === 204
   }, [token])
 
-  return { isConnected, connect, disconnect, fetchEvents, createEvent, updateEvent, deleteEvent }
+  return { isConnected, connect, disconnect, fetchCalendars, fetchEvents, createEvent, updateEvent, deleteEvent }
 }
