@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { Sidebar } from './Sidebar'
@@ -6,11 +7,21 @@ import { PageTransition } from './PageTransition'
 import { usePlatform, useKeyboardShortcut } from '@/hooks'
 import { CommandPalette } from '@/components/desktop/CommandPalette'
 import { CalendarPrefsProvider } from '@/contexts/CalendarPrefsContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { supabase } from '@/lib/supabase'
+import { maintainRecurringSeries } from '@/lib/recurrence'
 
 export function AppShell() {
   const location = useLocation()
   const navigate = useNavigate()
   const { isDesktop } = usePlatform()
+  const { user } = useAuth()
+
+  // Silently maintain recurring task series on every load
+  useEffect(() => {
+    if (!user?.id) return
+    void maintainRecurringSeries(user.id, supabase)
+  }, [user?.id])
 
   // Navigation shortcuts — desktop only
   useKeyboardShortcut('1', true, () => navigate('/dashboard'), isDesktop)
