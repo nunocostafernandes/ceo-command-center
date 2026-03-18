@@ -556,7 +556,7 @@ export function CalendarPage() {
                       className={`relative flex flex-col items-center pt-1.5 rounded-xl cursor-pointer transition-colors hover:bg-white/[0.04] ${
                         isSelected ? 'bg-white/[0.07]' : ''
                       }`}
-                      style={{ height: `${cellH}px` }}
+                      style={{ height: `${DAY_H}px` }}
                     >
                       {/* Date number — Apple-style circle */}
                       <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold flex-shrink-0 ${
@@ -637,7 +637,7 @@ export function CalendarPage() {
                   <button
                     key={`overflow-${wi}-${colIdx}`}
                     onClick={e => { e.stopPropagation(); selectDay(day, true) }}
-                    className="absolute text-[8px] font-semibold text-violet-400 hover:text-violet-300 transition-colors leading-none px-1 py-0.5 rounded hover:bg-violet-400/10"
+                    className="absolute z-10 text-[8px] font-semibold text-violet-400 hover:text-violet-300 transition-colors leading-none px-1 py-0.5 rounded hover:bg-violet-400/10"
                     style={{
                       top:  `${DAY_H + MAX_VIS * BAR_H + 1}px`,
                       left: `calc(${(colIdx / 7) * 100}% + 4px)`,
