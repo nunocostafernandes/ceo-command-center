@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Plus, Check, Trash2, Pencil, FolderOpen } from 'lucide-react'
@@ -152,6 +153,7 @@ export function TasksPage() {
   const { isDesktop } = usePlatform()
   const qc = useQueryClient()
   const userId = user?.id
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all')
@@ -260,6 +262,18 @@ export function TasksPage() {
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['tasks', userId] }),
   })
+
+  // Deep-link from calendar: /tasks?task=<id> opens that task's edit sheet
+  useEffect(() => {
+    const taskId = searchParams.get('task')
+    if (!taskId || !tasks) return
+    const task = tasks.find(t => t.id === taskId)
+    if (!task) return
+    setSearchParams({}, { replace: true })  // clean URL
+    setStatusFilter('all')  // ensure task is visible regardless of filter
+    openEdit(task)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, tasks])
 
   const openEdit = (task: Task) => {
     setEditingTask(task)

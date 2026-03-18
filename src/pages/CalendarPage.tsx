@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ChevronLeft, ChevronRight, Bell, Check, Plus, CalendarDays, Trash2, Pencil, LogOut, Loader2, Palmtree, Mail } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Bell, Check, Plus, CalendarDays, Trash2, Pencil, Loader2, Palmtree, Mail } from 'lucide-react'
 
 const LEAVE_PROXY = 'https://ledtmryhckvgdkkqqteh.supabase.co/functions/v1/leave-calendar-proxy'
 
@@ -23,6 +23,7 @@ import {
   isSameMonth, isSameDay, isToday,
   parseISO, addMonths, subMonths, subDays,
 } from 'date-fns'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePlatform } from '@/hooks/usePlatform'
@@ -87,6 +88,7 @@ export function CalendarPage() {
   const { user } = useAuth()
   const { isDesktop } = usePlatform()
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const userId = user?.id
   const gcal  = useGoogleCalendar()
   const mscal = useMicrosoftCalendar()
@@ -659,61 +661,7 @@ export function CalendarPage() {
 
   // ── Calendar picker ───────────────────────────────────────────────────────
 
-  const hasAnyCalendars = (gcal.isConnected && calendars && calendars.length > 0) ||
-                          (mscal.isConnected && msCalendars && msCalendars.length > 0)
-
-  const calendarPicker = hasAnyCalendars ? (
-    <div className="mb-4 card-glass p-3">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Calendars</p>
-        <div className="flex items-center gap-2">
-          {gcalLoading  && <Loader2 size={12} className="text-emerald-400 animate-spin" />}
-          {msCalLoading && <Loader2 size={12} className="text-sky-400 animate-spin" />}
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {/* Google calendars */}
-        {(calendars ?? []).map(cal => {
-          const isOn = selectedCalIds?.has(cal.id) ?? true
-          return (
-            <button
-              key={`g-${cal.id}`}
-              onClick={() => toggleCalendar(cal.id)}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${isOn ? 'opacity-100' : 'opacity-35'}`}
-              style={{
-                background: isOn ? `${cal.backgroundColor}22` : 'rgba(255,255,255,0.05)',
-                border: `1px solid ${isOn ? cal.backgroundColor + '66' : 'rgba(255,255,255,0.08)'}`,
-                color: isOn ? cal.backgroundColor : 'rgba(255,255,255,0.4)',
-              }}
-            >
-              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: cal.backgroundColor }} />
-              {cal.summary}
-            </button>
-          )
-        })}
-        {/* Microsoft calendars */}
-        {(msCalendars ?? []).map(cal => {
-          const isOn = selectedMsCalIds?.has(cal.id) ?? true
-          const color = cal.hexColor || '#38bdf8'
-          return (
-            <button
-              key={`ms-${cal.id}`}
-              onClick={() => toggleMsCalendar(cal.id)}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all ${isOn ? 'opacity-100' : 'opacity-35'}`}
-              style={{
-                background: isOn ? `${color}22` : 'rgba(255,255,255,0.05)',
-                border: `1px solid ${isOn ? color + '66' : 'rgba(255,255,255,0.08)'}`,
-                color: isOn ? color : 'rgba(255,255,255,0.4)',
-              }}
-            >
-              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-              {cal.name}
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  ) : null
+  // calendarPicker replaced by calendarsPanel below
 
   // ── Calendar grid ─────────────────────────────────────────────────────────
 
@@ -829,6 +777,7 @@ export function CalendarPage() {
                       e.stopPropagation()
                       if (bar.type === 'gcal' && bar.gcalEvent) openGcalEdit(bar.gcalEvent)
                       else if (bar.type === 'mscal' && bar.msCalEvent) openMsCalEdit(bar.msCalEvent)
+                      else if (bar.type === 'task' && bar.taskItem) navigate(`/tasks?task=${bar.taskItem.id}`)
                       else selectDay(weekDays[bar.colStart]!, true)
                     } : undefined}
                   >
@@ -1019,53 +968,106 @@ export function CalendarPage() {
     </>
   )
 
-  // ── Connect banners (compact) ──────────────────────────────────────────────
+  // ── Calendars panel ────────────────────────────────────────────────────────
 
-  const connectBanner = (!gcal.isConnected || !mscal.isConnected) ? (
-    <div className="flex items-center gap-2 mb-3 flex-wrap">
-      {!gcal.isConnected && (
-        <button
-          onClick={() => gcal.connect()}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-emerald-500/25 text-xs text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-        >
-          <CalendarDays size={12} />
-          Connect Google Calendar
-        </button>
-      )}
-      {!mscal.isConnected && (
-        <button
-          onClick={() => mscal.connect()}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.05] border border-sky-500/25 text-xs text-sky-400 hover:bg-sky-500/10 transition-colors"
-        >
-          <Mail size={12} />
-          Connect Outlook
-        </button>
-      )}
+  const calendarsPanel = (
+    <div className="mb-3 card-glass p-3">
+      <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2">My Calendars</p>
+
+      {/* Leave — always on */}
+      <div className="flex items-center gap-2 py-1">
+        <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: 'rgba(139,92,246,0.7)' }} />
+        <span className="text-xs text-text-secondary flex-1">Leave</span>
+        <span className="text-[10px] text-text-tertiary/50">Always on</span>
+      </div>
+
+      {/* Google Calendar */}
+      <div className="mt-2 pt-2 border-t border-white/[0.05]">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-1.5">
+            <CalendarDays size={11} className="text-emerald-400/70" />
+            <span className="text-[10px] font-medium text-text-tertiary uppercase tracking-wider">Google</span>
+          </div>
+          {gcal.isConnected ? (
+            <button
+              onClick={() => { gcal.disconnect(); toast.success('Google Calendar disconnected') }}
+              className="text-[10px] text-text-tertiary hover:text-status-error transition-colors"
+            >Disconnect</button>
+          ) : (
+            <button onClick={() => gcal.connect()} className="text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors font-medium">
+              + Connect
+            </button>
+          )}
+        </div>
+        {gcal.isConnected && gcalLoading && (
+          <div className="flex items-center gap-1.5 py-1">
+            <Loader2 size={10} className="animate-spin text-emerald-400" />
+            <span className="text-[10px] text-text-tertiary">Loading calendars…</span>
+          </div>
+        )}
+        {gcal.isConnected && (calendars ?? []).map(cal => {
+          const isOn = selectedCalIds?.has(cal.id) ?? true
+          return (
+            <button
+              key={cal.id}
+              onClick={() => toggleCalendar(cal.id)}
+              className="flex items-center gap-2 w-full py-1 rounded-lg hover:bg-white/[0.04] transition-colors text-left"
+            >
+              <div className="w-3 h-3 rounded-sm flex-shrink-0 transition-opacity" style={{ background: cal.backgroundColor, opacity: isOn ? 1 : 0.25 }} />
+              <span className={`text-xs flex-1 truncate transition-opacity ${isOn ? 'text-text-secondary' : 'text-text-tertiary opacity-40'}`}>{cal.summary}</span>
+              {!isOn && <span className="text-[9px] text-text-tertiary/40 flex-shrink-0">hidden</span>}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Outlook / Microsoft */}
+      <div className="mt-2 pt-2 border-t border-white/[0.05]">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-1.5">
+            <Mail size={11} className="text-sky-400/70" />
+            <span className="text-[10px] font-medium text-text-tertiary uppercase tracking-wider">Outlook</span>
+          </div>
+          {mscal.isConnected ? (
+            <button
+              onClick={() => { void mscal.disconnect(); toast.success('Outlook disconnected') }}
+              className="text-[10px] text-text-tertiary hover:text-status-error transition-colors"
+            >Disconnect</button>
+          ) : (
+            <button onClick={() => mscal.connect()} className="text-[10px] text-sky-400 hover:text-sky-300 transition-colors font-medium">
+              + Connect
+            </button>
+          )}
+        </div>
+        {mscal.isConnected && msCalLoading && (
+          <div className="flex items-center gap-1.5 py-1">
+            <Loader2 size={10} className="animate-spin text-sky-400" />
+            <span className="text-[10px] text-text-tertiary">Loading calendars…</span>
+          </div>
+        )}
+        {mscal.isConnected && (msCalendars ?? []).map(cal => {
+          const isOn = selectedMsCalIds?.has(cal.id) ?? true
+          const color = cal.hexColor || '#38bdf8'
+          return (
+            <button
+              key={cal.id}
+              onClick={() => toggleMsCalendar(cal.id)}
+              className="flex items-center gap-2 w-full py-1 rounded-lg hover:bg-white/[0.04] transition-colors text-left"
+            >
+              <div className="w-3 h-3 rounded-sm flex-shrink-0 transition-opacity" style={{ background: color, opacity: isOn ? 1 : 0.25 }} />
+              <span className={`text-xs flex-1 truncate transition-opacity ${isOn ? 'text-text-secondary' : 'text-text-tertiary opacity-40'}`}>{cal.name}</span>
+              {!isOn && <span className="text-[9px] text-text-tertiary/40 flex-shrink-0">hidden</span>}
+            </button>
+          )
+        })}
+      </div>
     </div>
-  ) : null
+  )
 
   // ── Header buttons ────────────────────────────────────────────────────────
 
   const headerButtons = (
     <div className="flex items-center gap-2">
-      {mscal.isConnected && (
-        <button
-          onClick={() => { void mscal.disconnect(); toast.success('Outlook disconnected') }}
-          className="p-1.5 rounded-lg text-sky-400/60 hover:text-sky-400 hover:bg-white/5 transition-colors"
-          title="Disconnect Outlook"
-        >
-          <Mail size={15} />
-        </button>
-      )}
-      {gcal.isConnected && (
-        <button
-          onClick={() => { gcal.disconnect(); toast.success('Google Calendar disconnected') }}
-          className="p-1.5 rounded-lg text-text-tertiary hover:text-text-secondary hover:bg-white/5 transition-colors"
-          title="Disconnect Google Calendar"
-        >
-          <LogOut size={15} />
-        </button>
-      )}
       <button
         onClick={openReminderSheet}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition-colors"
@@ -1185,8 +1187,7 @@ export function CalendarPage() {
               <h1 className="text-2xl font-bold text-text-primary">Calendar</h1>
               {headerButtons}
             </div>
-            {connectBanner}
-            {calendarPicker}
+            {calendarsPanel}
             {calendarGrid}
           </div>
 
@@ -1203,8 +1204,7 @@ export function CalendarPage() {
             <h1 className="text-2xl font-bold text-text-primary">Calendar</h1>
             {headerButtons}
           </div>
-          {connectBanner}
-          {calendarPicker}
+          {calendarsPanel}
           <div className="mb-5">{calendarGrid}</div>
           <div className="mb-4" ref={dayDetailRef}>{dayDetailContent}</div>
         </div>
