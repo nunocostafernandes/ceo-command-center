@@ -34,9 +34,8 @@ import type { Task, Reminder } from '@/types/database'
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 
 // Calendar bar rendering constants
-const BAR_H   = 18  // px height per bar row
-const DAY_H   = 40  // px for date number + dots row
-const MAX_VIS = 2   // max bar rows before "+N more"
+const BAR_H = 18  // px height per bar row
+const DAY_H = 40  // px for date number + dots row
 
 function localToISO(localStr: string): string {
   if (!localStr) return ''
@@ -515,26 +514,15 @@ export function CalendarPage() {
       {/* Week rows — Apple Calendar architecture */}
       <div className="flex flex-col">
         {weeksData.map(({ weekDays, bars }, wi) => {
-          // Determine cell height based on how many bar rows are visible
+          // Week row grows to fit ALL bars — no overflow, always fully visible
           const maxBarRow = bars.length > 0 ? Math.max(...bars.map(b => b.row)) : -1
-          const visibleBarRows = Math.min(MAX_VIS, maxBarRow + 1)
-          const hasOverflow = maxBarRow >= MAX_VIS
+          const totalBarRows = maxBarRow + 1
 
-          // Desktop: date row + bar rows + optional overflow label row
+          // Desktop: date row + all bar rows + small bottom padding
           // Mobile: fixed compact height (dots only)
           const cellH = isDesktop
-            ? DAY_H + visibleBarRows * BAR_H + (hasOverflow ? 14 : 4)
+            ? DAY_H + totalBarRows * BAR_H + 4
             : 48
-
-          // Per-column hidden event count (for "+N more" indicators)
-          const hiddenCounts = new Array(7).fill(0) as number[]
-          for (const bar of bars) {
-            if (bar.row >= MAX_VIS) {
-              for (let c = bar.colStart; c < bar.colStart + bar.colSpan; c++) {
-                hiddenCounts[c] = (hiddenCounts[c] ?? 0) + 1
-              }
-            }
-          }
 
           return (
             <div key={wi} className="relative" style={{ height: `${cellH}px` }}>
@@ -587,8 +575,6 @@ export function CalendarPage() {
               {/* Bars are absolute-positioned at the WEEK level, not inside cells.
                   This guarantees perfect horizontal alignment across all columns. */}
               {isDesktop && bars.map(bar => {
-                if (bar.row >= MAX_VIS) return null
-
                 const barTop     = DAY_H + bar.row * BAR_H
                 const leftPct    = (bar.colStart / 7) * 100
                 const widthPct   = (bar.colSpan  / 7) * 100
@@ -629,24 +615,6 @@ export function CalendarPage() {
                 )
               })}
 
-              {/* ── "+N more" overflow buttons (desktop only) ── */}
-              {isDesktop && hiddenCounts.map((count, colIdx) => {
-                if (!count) return null
-                const day = weekDays[colIdx]!
-                return (
-                  <button
-                    key={`overflow-${wi}-${colIdx}`}
-                    onClick={e => { e.stopPropagation(); selectDay(day, true) }}
-                    className="absolute z-10 text-[8px] font-semibold text-violet-400 hover:text-violet-300 transition-colors leading-none px-1 py-0.5 rounded hover:bg-violet-400/10"
-                    style={{
-                      top:  `${DAY_H + MAX_VIS * BAR_H + 1}px`,
-                      left: `calc(${(colIdx / 7) * 100}% + 4px)`,
-                    }}
-                  >
-                    +{count} more
-                  </button>
-                )
-              })}
 
             </div>
           )
