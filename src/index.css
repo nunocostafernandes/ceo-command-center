@@ -173,6 +173,35 @@ body {
 /* Selection */
 .tiptap-editor ::selection { background: rgba(94,106,210,0.25); }
 
+/* Tables */
+.tiptap-editor table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.75em 0;
+  overflow: hidden;
+  table-layout: fixed;
+}
+.tiptap-editor th,
+.tiptap-editor td {
+  border: 1px solid rgba(255,255,255,0.12);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  min-width: 60px;
+}
+.tiptap-editor th {
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.7);
+  font-weight: 600;
+  font-size: 13px;
+}
+.tiptap-editor td {
+  color: rgba(255,255,255,0.55);
+}
+.tiptap-editor .selectedCell {
+  background: rgba(94,106,210,0.15);
+}
+
 /* ── Reduced motion ──────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

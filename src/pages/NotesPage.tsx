@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Search, Pin, Plus, ChevronLeft, Trash2, FileText,
-  Bold, Italic, Underline, List, ListOrdered, CheckSquare, Link,
+  Bold, Italic, Underline, List, ListOrdered, CheckSquare, Link, Table2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { format, parseISO } from 'date-fns'
@@ -15,6 +15,11 @@ import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import LinkExt from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
+import { Table } from '@tiptap/extension-table'
+import { TableRow } from '@tiptap/extension-table-row'
+import { TableHeader } from '@tiptap/extension-table-header'
+import { TableCell } from '@tiptap/extension-table-cell'
+import * as Popover from '@radix-ui/react-popover'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { usePlatform } from '@/hooks/usePlatform'
@@ -36,8 +41,9 @@ function stripHtml(html: string): string {
 }
 
 // Tiptap-native HTML only contains <p>, <strong>, <em>, <u>, <ul>, <ol>, <li>,
-// <a>, task-list nodes. Any other HTML (from pasted content or old notes) will
-// crash ProseMirror's schema validator — strip it to safe plain text first.
+// <a>, <table>, <tr>, <th>, <td>, task-list nodes. Any other HTML (from pasted
+// content or old notes) will crash ProseMirror's schema validator — strip it to
+// safe plain text first.
 function safeContent(raw: string | null): string {
   if (!raw) return ''
   if (!raw.includes('<')) return raw
@@ -47,7 +53,6 @@ function safeContent(raw: string | null): string {
     raw.includes('<span') ||
     raw.includes('<br') ||
     raw.includes('&nbsp;') ||
-    raw.includes('<table') ||
     raw.includes('<script')
   return isLegacy ? stripHtml(raw) : raw
 }
@@ -592,6 +597,10 @@ function NoteEditorContent({ note, onSave, onDelete, onBack }: {
         HTMLAttributes: { class: 'note-link', rel: 'noopener noreferrer', target: '_blank' },
       }),
       Placeholder.configure({ placeholder: 'Start writing…' }),
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
     ],
     content: initialContent,
     editorProps: { attributes: { class: 'tiptap-editor focus:outline-none' } },
@@ -640,6 +649,17 @@ function NoteEditorContent({ note, onSave, onDelete, onBack }: {
     editor?.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
   }
 
+  const [tableOpen, setTableOpen] = useState(false)
+  const [tableRows, setTableRows] = useState(3)
+  const [tableCols, setTableCols] = useState(3)
+
+  const insertTable = () => {
+    editor?.chain().focus().insertTable({ rows: tableRows, cols: tableCols, withHeaderRow: true }).run()
+    setTableOpen(false)
+    setTableRows(3)
+    setTableCols(3)
+  }
+
   const toolbar = (
     <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-white/[0.06] flex-shrink-0 overflow-x-auto scrollbar-none">
       <Btn active={editor?.isActive('bold')} onClick={() => editor?.chain().focus().toggleBold().run()} label="Bold"><Bold size={15} /></Btn>
@@ -651,6 +671,53 @@ function NoteEditorContent({ note, onSave, onDelete, onBack }: {
       <Btn active={editor?.isActive('taskList')} onClick={() => editor?.chain().focus().toggleTaskList().run()} label="Tasks"><CheckSquare size={15} /></Btn>
       <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)', margin: '0 4px', flexShrink: 0 }} />
       <Btn active={editor?.isActive('link')} onClick={setLink} label="Link"><Link size={15} /></Btn>
+      <Popover.Root open={tableOpen} onOpenChange={setTableOpen}>
+        <Popover.Trigger asChild>
+          <button
+            title="Table"
+            style={{
+              padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer', flexShrink: 0,
+              background: tableOpen ? 'rgba(94,106,210,0.2)' : 'transparent',
+              color: tableOpen ? '#5E6AD2' : 'rgba(255,255,255,0.4)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <Table2 size={15} />
+          </button>
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content
+            sideOffset={6}
+            className="z-50 rounded-lg border border-white/[0.08] bg-[#1a1a1e] p-3 shadow-xl"
+          >
+            <div className="flex items-center gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] text-white/40">Rows</span>
+                <input
+                  type="number" min={1} max={10} value={tableRows}
+                  onChange={e => setTableRows(Math.max(1, Math.min(10, +e.target.value || 1)))}
+                  className="w-14 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-sm text-white/80 outline-none focus:border-[#5E6AD2]"
+                />
+              </label>
+              <span className="text-white/20 mt-4">×</span>
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] text-white/40">Cols</span>
+                <input
+                  type="number" min={1} max={10} value={tableCols}
+                  onChange={e => setTableCols(Math.max(1, Math.min(10, +e.target.value || 1)))}
+                  className="w-14 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-sm text-white/80 outline-none focus:border-[#5E6AD2]"
+                />
+              </label>
+              <button
+                onClick={insertTable}
+                className="mt-4 rounded-md bg-[#5E6AD2] px-3 py-1 text-sm font-medium text-white hover:bg-[#4F5ABF] transition-colors"
+              >
+                Insert
+              </button>
+            </div>
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
     </div>
   )
 
