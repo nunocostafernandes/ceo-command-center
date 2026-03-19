@@ -305,7 +305,7 @@ export function TasksPage() {
       await qc.cancelQueries({ queryKey: ['tasks', userId] })
       const prev = qc.getQueryData<Task[]>(['tasks', userId])
       qc.setQueryData<Task[]>(['tasks', userId], old =>
-        (old ?? []).map(t => t.id === id ? { ...t, is_completed: completed } : t)
+        (old ?? []).map(t => t.id === id ? { ...t, is_completed: completed, completed_at: completed ? new Date().toISOString() : null } : t)
       )
       return { prev }
     },
@@ -908,6 +908,9 @@ export function TasksPage() {
             />
           </div>
           <input type="text" placeholder="Assign to (optional)" value={editForm.assigned_to} onChange={e => setEditForm(f => ({ ...f, assigned_to: e.target.value }))} className={inputClass} />
+          {editingTask?.is_completed && editingTask.completed_at && (
+            <p className="text-[11px] text-text-tertiary px-1">Completed on {format(parseISO(editingTask.completed_at), 'MMM d, yyyy')}</p>
+          )}
           <button
             onClick={handleUpdate}
             disabled={!editForm.title || updateMutation.isPending}
