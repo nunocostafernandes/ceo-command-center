@@ -485,7 +485,7 @@ export function TasksPage() {
   }
 
   const handleAddQuickTask = useCallback((listName: string, title: string) => {
-    createMutation.mutate({ user_id: userId!, title, list_name: listName, is_completed: false, sort_order: 9999, priority: null })
+    createMutation.mutate({ user_id: userId!, title, list_name: listName, is_completed: false, sort_order: 9999, priority: null, tags: [] })
   }, [createMutation, userId])
 
   const filtered = (tasks ?? []).filter(t => {

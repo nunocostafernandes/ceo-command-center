@@ -70,6 +70,8 @@ function DesktopProjectDetail({ projectId }: { projectId: string }) {
         due_date: taskForm.due_date || null,
         is_completed: false,
         sort_order: 9999,
+        tags: [],
+        list_name: 'Inbox',
       })
       if (error) throw error
     },
