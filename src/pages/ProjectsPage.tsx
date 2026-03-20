@@ -66,7 +66,7 @@ function DesktopProjectDetail({ projectId }: { projectId: string }) {
         user_id: userId!,
         project_id: projectId,
         title: taskForm.title,
-        priority: taskForm.priority || null,
+        priority: taskForm.priority || 'low',
         due_date: taskForm.due_date || null,
         is_completed: false,
         sort_order: 9999,

@@ -50,7 +50,7 @@ export function ProjectDetailPage() {
 
   const createTask = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from('ceo_tasks').insert({ user_id: userId!, project_id: id!, title: taskForm.title, priority: taskForm.priority || null, due_date: taskForm.due_date || null, is_completed: false, sort_order: 9999, tags: [], list_name: 'Inbox' })
+      const { error } = await supabase.from('ceo_tasks').insert({ user_id: userId!, project_id: id!, title: taskForm.title, priority: taskForm.priority || 'low', due_date: taskForm.due_date || null, is_completed: false, sort_order: 9999, tags: [], list_name: 'Inbox' })
       if (error) throw error
     },
     onSuccess: () => {

@@ -35,7 +35,7 @@ interface TaskForm {
 
 const emptyForm: TaskForm = {
   title: '',
-  priority: null,
+  priority: 'low',
   due_date: '',
   due_time: '',
   list_name: 'Inbox',
@@ -485,7 +485,7 @@ export function TasksPage() {
   }
 
   const handleAddQuickTask = useCallback((listName: string, title: string) => {
-    createMutation.mutate({ user_id: userId!, title, list_name: listName, is_completed: false, sort_order: 9999, priority: null, tags: [] })
+    createMutation.mutate({ user_id: userId!, title, list_name: listName, is_completed: false, sort_order: 9999, priority: 'low', tags: [] })
   }, [createMutation, userId])
 
   const filtered = (tasks ?? []).filter(t => {
