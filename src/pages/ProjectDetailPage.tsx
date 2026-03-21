@@ -139,7 +139,7 @@ export function ProjectDetailPage() {
           <SkeletonCard />
         ) : tasks && tasks.length > 0 ? (
           <div className="space-y-2">
-            {tasks.map(task => (
+            {[...tasks].sort((a, b) => (a.is_completed ? 1 : 0) - (b.is_completed ? 1 : 0)).map(task => (
               <div key={task.id} className="card-glass p-3 flex items-center gap-3">
                 <button
                   onClick={() => toggleTask.mutate({ taskId: task.id, completed: !task.is_completed })}

@@ -161,7 +161,7 @@ function DesktopProjectDetail({ projectId }: { projectId: string }) {
           <SkeletonCard />
         ) : tasks && tasks.length > 0 ? (
           <div className="space-y-2">
-            {tasks.map(task => (
+            {[...tasks].sort((a, b) => (a.is_completed ? 1 : 0) - (b.is_completed ? 1 : 0)).map(task => (
               <div key={task.id} className="card-glass p-3 flex items-center gap-3">
                 <button
                   onClick={() => toggleTask.mutate({ taskId: task.id, completed: !task.is_completed })}
@@ -268,7 +268,9 @@ export function ProjectsPage() {
     onError: () => toast.error('Failed to create project'),
   })
 
-  const filtered = (projects ?? []).filter(p => statusFilter === 'all' || p.status === statusFilter)
+  const filtered = (projects ?? [])
+    .filter(p => statusFilter === 'all' || p.status === statusFilter)
+    .sort((a, b) => (a.status === 'completed' ? 1 : 0) - (b.status === 'completed' ? 1 : 0))
 
   const filterPills: { label: string; value: StatusFilter }[] = [
     { label: 'All', value: 'all' },
@@ -339,7 +341,7 @@ export function ProjectsPage() {
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: project.color ?? '#5E6AD2' }} />
-                        <p className="font-medium text-sm text-text-primary truncate">{project.title}</p>
+                        <p className={`font-medium text-sm truncate ${project.status === 'completed' ? 'line-through text-text-tertiary' : 'text-text-primary'}`}>{project.title}</p>
                       </div>
                       <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${statusInfo.className}`}>
                         {statusInfo.label}
@@ -398,7 +400,7 @@ export function ProjectsPage() {
                   onClick={() => navigate(`/projects/${project.id}`)}
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
-                    <p className="font-semibold text-sm text-text-primary">{project.title}</p>
+                    <p className={`font-semibold text-sm ${project.status === 'completed' ? 'line-through text-text-tertiary' : 'text-text-primary'}`}>{project.title}</p>
                     <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${statusInfo.className}`}>
                       {statusInfo.label}
                     </span>
