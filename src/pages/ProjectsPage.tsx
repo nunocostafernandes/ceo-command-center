@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Plus, Check, FolderKanban } from 'lucide-react'
+import { Plus, Check, FolderKanban, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
@@ -39,6 +39,8 @@ function DesktopProjectDetail({ projectId }: { projectId: string }) {
 
   const [taskSheetOpen, setTaskSheetOpen] = useState(false)
   const [taskForm, setTaskForm] = useState({ title: '', priority: '' as Task['priority'] | '', due_date: '' })
+  const [editSheetOpen, setEditSheetOpen] = useState(false)
+  const [editForm, setEditForm] = useState<ProjectForm>({ title: '', description: '', status: 'planning', color: '#5E6AD2' })
 
   const { data: project, isLoading: loadingProject } = useQuery({
     queryKey: ['project', projectId],
@@ -84,6 +86,26 @@ function DesktopProjectDetail({ projectId }: { projectId: string }) {
     },
     onError: () => toast.error('Failed to add task'),
   })
+
+  const updateProject = useMutation({
+    mutationFn: async (payload: Partial<Project>) => {
+      const { error } = await supabase.from('ceo_projects').update(payload).eq('id', projectId)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['project', projectId] })
+      void qc.invalidateQueries({ queryKey: ['projects', userId] })
+      toast.success('Project updated')
+      setEditSheetOpen(false)
+    },
+    onError: () => toast.error('Failed to update project'),
+  })
+
+  const openEditSheet = () => {
+    if (!project) return
+    setEditForm({ title: project.title, description: project.description ?? '', status: project.status, color: project.color ?? '#5E6AD2' })
+    setEditSheetOpen(true)
+  }
 
   const setProjectStatusOptimistic = (status: Project['status']) => {
     // Instant UI update
@@ -135,6 +157,7 @@ function DesktopProjectDetail({ projectId }: { projectId: string }) {
           <div className="flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-xl font-bold text-text-primary">{project.title}</h2>
+              <button onClick={openEditSheet} className="text-text-tertiary hover:text-text-primary transition-colors"><Pencil size={14} /></button>
               <select
                 value={project.status}
                 onChange={e => setProjectStatusOptimistic(e.target.value as Project['status'])}
@@ -228,6 +251,28 @@ function DesktopProjectDetail({ projectId }: { projectId: string }) {
             className="w-full bg-accent hover:bg-accent-hover text-white rounded-btn py-3 font-semibold text-sm transition-colors disabled:opacity-60"
           >
             {createTask.isPending ? 'Adding...' : 'Add Task'}
+          </button>
+        </div>
+      </PlatformSheet>
+
+      <PlatformSheet isOpen={editSheetOpen} onClose={() => setEditSheetOpen(false)} title="Edit Project">
+        <div className="space-y-3 pb-4">
+          <input type="text" placeholder="Project title" value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} className={inputClass} />
+          <textarea placeholder="Description (optional)" value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} rows={3} className={inputClass} />
+          <div>
+            <p className="text-xs text-text-tertiary mb-2">Color</p>
+            <div className="flex gap-2">
+              {PRESET_COLORS.map(c => (
+                <button key={c} onClick={() => setEditForm(f => ({ ...f, color: c }))} className={`w-7 h-7 rounded-full transition-all ${editForm.color === c ? 'ring-2 ring-white ring-offset-2 ring-offset-[#0a0a0c]' : ''}`} style={{ backgroundColor: c }} />
+              ))}
+            </div>
+          </div>
+          <button
+            onClick={() => updateProject.mutate({ title: editForm.title, description: editForm.description || null, color: editForm.color })}
+            disabled={!editForm.title || updateProject.isPending}
+            className="w-full bg-accent hover:bg-accent-hover text-white rounded-btn py-3 font-semibold text-sm transition-colors disabled:opacity-60"
+          >
+            {updateProject.isPending ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </PlatformSheet>
