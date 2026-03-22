@@ -85,17 +85,15 @@ function DesktopProjectDetail({ projectId }: { projectId: string }) {
     onError: () => toast.error('Failed to add task'),
   })
 
-  const updateProjectStatus = useMutation({
-    mutationFn: async (status: Project['status']) => {
-      const { error } = await supabase.from('ceo_projects').update({ status }).eq('id', projectId)
-      if (error) throw error
-    },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['project', projectId] })
-      void qc.invalidateQueries({ queryKey: ['projects', userId] })
-    },
-    onError: () => toast.error('Failed to update status'),
-  })
+  const setProjectStatusOptimistic = (status: Project['status']) => {
+    // Instant UI update
+    qc.setQueryData(['project', projectId], (old: Project | undefined) => old ? { ...old, status } : old)
+    qc.setQueryData(['projects', userId], (old: Project[] | undefined) =>
+      (old ?? []).map(p => p.id === projectId ? { ...p, status } : p)
+    )
+    // Persist to DB
+    void supabase.from('ceo_projects').update({ status }).eq('id', projectId)
+  }
 
   const toggleTask = useMutation({
     mutationFn: async ({ taskId, completed }: { taskId: string; completed: boolean }) => {
@@ -104,14 +102,13 @@ function DesktopProjectDetail({ projectId }: { projectId: string }) {
     },
     onSuccess: (_data, { completed }) => {
       void qc.invalidateQueries({ queryKey: ['project-tasks', projectId] })
-      // Auto-complete: if all tasks now done, mark project completed; if unchecking, revert to active
       const currentTasks = tasks ?? []
       const willBeCompleted = currentTasks.filter(t => t.is_completed).length + (completed ? 1 : -1)
       if (completed && willBeCompleted === currentTasks.length && project?.status !== 'completed') {
-        updateProjectStatus.mutate('completed')
+        setProjectStatusOptimistic('completed')
         toast.success('All tasks done — project marked complete')
       } else if (!completed && project?.status === 'completed') {
-        updateProjectStatus.mutate('active')
+        setProjectStatusOptimistic('active')
       }
     },
     onError: () => toast.error('Failed to update task'),
@@ -140,7 +137,7 @@ function DesktopProjectDetail({ projectId }: { projectId: string }) {
               <h2 className="text-xl font-bold text-text-primary">{project.title}</h2>
               <select
                 value={project.status}
-                onChange={e => updateProjectStatus.mutate(e.target.value as Project['status'])}
+                onChange={e => setProjectStatusOptimistic(e.target.value as Project['status'])}
                 className={`text-[10px] font-medium px-2 py-0.5 rounded-full border-none outline-none cursor-pointer ${statusInfo?.className ?? ''}`}
                 style={{ WebkitAppearance: 'none', backgroundImage: 'none', paddingRight: 8 }}
               >
