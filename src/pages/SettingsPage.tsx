@@ -8,11 +8,13 @@ export function SettingsPage() {
   const mscal = useMicrosoftCalendar()
 
   return (
-    <div className="px-4 pt-[calc(var(--safe-top)+24px)] pb-8 max-w-xl mx-auto lg:px-8">
-      <h1 className="text-2xl font-bold text-text-primary mb-8">Settings</h1>
+    <div className="pb-8 max-w-xl mx-auto lg:px-8">
+      <div className="mobile-header px-4 lg:px-0 lg:pt-[calc(var(--safe-top)+24px)] mb-6 lg:mb-8">
+        <h1 className="text-[22px] lg:text-2xl font-bold text-text-primary tracking-tight">Settings</h1>
+      </div>
 
       {/* Connected Calendars */}
-      <section className="mb-8">
+      <section className="mb-8 px-4 lg:px-0">
         <h2 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Connected Calendars</h2>
 
         <div className="card-glass divide-y divide-white/[0.06]">

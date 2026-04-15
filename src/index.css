@@ -27,11 +27,42 @@ html, body, #root {
   font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
+  /* Remove mobile browser tap flash + disable text selection on UI chrome */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* Allow selection in actual content regions */
+p, span, h1, h2, h3, h4, h5, h6, li, td, th, pre, code,
+input, textarea, [contenteditable="true"], .tiptap-editor, .selectable {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Disable double-tap zoom on interactive elements + smooth momentum scroll */
+button, a, [role="button"], [role="tab"], [role="menuitem"], .press {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Prevent iOS auto-zoom on focus for inputs with font-size < 16px */
+input, textarea, select {
+  font-size: 16px;
+}
+
+/* Hide scrollbars on mobile where they just add noise */
+@media (max-width: 1023px) {
+  ::-webkit-scrollbar { display: none; }
+  * { scrollbar-width: none; }
 }
 
 body {
   background: linear-gradient(180deg, #020203 0%, #050506 100%);
   background-attachment: fixed;
+  /* momentum scroll (Safari legacy, harmless elsewhere) */
+  -webkit-overflow-scrolling: touch;
 }
 
 @layer utilities {
@@ -67,6 +98,33 @@ body {
   }
   .scroll-contain {
     overscroll-behavior-y: contain;
+  }
+  /* App-style sticky page header: glass blur + safe-area top padding */
+  .mobile-header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    padding-top: calc(var(--safe-top) + 12px);
+    padding-bottom: 12px;
+    background: rgba(2,2,3,0.78);
+    backdrop-filter: blur(22px) saturate(180%);
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  @media (min-width: 1024px) {
+    .mobile-header {
+      position: static;
+      padding-top: calc(var(--safe-top) + 16px);
+      background: transparent;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      border-bottom: none;
+    }
+  }
+  /* Minimum 44pt touch target (iOS HIG) */
+  .tap-target {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 

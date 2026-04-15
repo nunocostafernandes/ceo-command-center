@@ -331,12 +331,13 @@ export function DashboardPage() {
   // Pull-to-refresh: const { containerRef, isRefreshing } = usePullToRefresh({ onRefresh: refetch, enabled: !isDesktop })
   // Wrap main div with ref={containerRef}
   return (
-    <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl lg:max-w-none mx-auto scroll-contain">
-      <div className="mb-6">
+    <div className="pb-4 max-w-2xl lg:max-w-none mx-auto scroll-contain">
+      <div className="mobile-header px-4 lg:px-4 lg:pt-[calc(var(--safe-top)+16px)] mb-5 lg:mb-6">
         <p className="text-text-secondary text-sm">{getGreeting()},</p>
-        <h1 className="text-2xl font-bold text-text-primary">{firstName}</h1>
+        <h1 className="text-[22px] lg:text-2xl font-bold text-text-primary tracking-tight">{firstName}</h1>
         <p className="text-text-tertiary text-xs mt-0.5">{format(new Date(), 'EEEE, MMMM d')}</p>
       </div>
+      <div className="px-4">
 
       {/* KPI Cards — 2 cols on mobile, 4 cols on desktop */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
@@ -505,6 +506,7 @@ export function DashboardPage() {
         <NewsSection />
       </div>
 
+      </div>
     </div>
   )
 }

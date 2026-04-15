@@ -544,10 +544,10 @@ export function TasksPage() {
   ]
 
   return (
-    <div className={isDesktop ? 'pt-[calc(var(--safe-top)+16px)] pb-4' : 'px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto scroll-contain'}>
-      <div className={`mb-5 ${isDesktop ? 'px-4' : ''}`}>
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold text-text-primary">Tasks</h1>
+    <div className={isDesktop ? 'pt-[calc(var(--safe-top)+16px)] pb-4' : 'pb-4 max-w-2xl mx-auto scroll-contain'}>
+      <div className={`${isDesktop ? 'mb-5 px-4' : 'mobile-header px-4 mb-4'}`}>
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-[22px] lg:text-2xl font-bold text-text-primary tracking-tight">Tasks</h1>
           {isDesktop && (
             <button
               onClick={() => setCreateSheetOpen(true)}
@@ -660,9 +660,9 @@ export function TasksPage() {
       ) : (
         // ── Mobile: flat grouped list ───────────────────────────────────────
         Object.entries(grouped).length === 0 && Object.keys(groupedByProject).length === 0 ? (
-          <p className="text-text-tertiary text-sm">No tasks. Tap + to add one.</p>
+          <p className="text-text-tertiary text-sm px-4">No tasks. Tap + to add one.</p>
         ) : (
-          <>
+          <div className="px-4">
             {/* Standalone list groups */}
             {Object.entries(grouped).map(([listName, listTasks]) => (
               <div key={listName} className="mb-6">
@@ -740,7 +740,7 @@ export function TasksPage() {
                 </div>
               )
             })}
-          </>
+          </div>
         )
       )}
 

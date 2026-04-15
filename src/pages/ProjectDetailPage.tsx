@@ -121,14 +121,17 @@ export function ProjectDetailPage() {
   const inputClass = 'bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm w-full focus:outline-none focus:border-accent text-text-primary placeholder-text-tertiary'
 
   return (
-    <div className="px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto">
-      <button
-        onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors mb-5 press"
-      >
-        <ArrowLeft size={18} />
-        <span className="text-sm">Projects</span>
-      </button>
+    <div className="pb-4 max-w-2xl mx-auto">
+      <div className="mobile-header px-4 lg:px-0 lg:pt-[calc(var(--safe-top)+16px)] mb-4 lg:mb-5">
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors press tap-target -ml-2 pl-2"
+        >
+          <ArrowLeft size={18} />
+          <span className="text-sm font-medium">Projects</span>
+        </button>
+      </div>
+      <div className="px-4">
 
       {loadingProject ? (
         <SkeletonCard />
@@ -210,6 +213,7 @@ export function ProjectDetailPage() {
         ) : (
           <p className="text-text-tertiary text-sm">No tasks linked to this project.</p>
         )}
+      </div>
       </div>
 
       <PlatformSheet isOpen={taskSheetOpen} onClose={() => setTaskSheetOpen(false)} title="Add Task to Project">

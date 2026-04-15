@@ -352,11 +352,11 @@ export function ProjectsPage() {
   const inputClass = 'bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm w-full focus:outline-none focus:border-accent text-text-primary placeholder-text-tertiary'
 
   return (
-    <div className={isDesktop ? 'flex flex-col h-full' : 'px-4 pt-[calc(var(--safe-top)+16px)] pb-4 max-w-2xl mx-auto'}>
+    <div className={isDesktop ? 'flex flex-col h-full' : 'pb-4 max-w-2xl mx-auto'}>
       {/* Header + filter pills */}
-      <div className={`mb-5 ${isDesktop ? 'px-4 pt-[calc(var(--safe-top)+16px)]' : ''}`}>
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold text-text-primary">Projects</h1>
+      <div className={`${isDesktop ? 'mb-5 px-4 pt-[calc(var(--safe-top)+16px)]' : 'mobile-header px-4 mb-4'}`}>
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-[22px] lg:text-2xl font-bold text-text-primary tracking-tight">Projects</h1>
           {isDesktop && (
             <button
               onClick={() => setSheetOpen(true)}
@@ -383,7 +383,7 @@ export function ProjectsPage() {
       </div>
 
       {isLoading ? (
-        <div className={`space-y-3 ${isDesktop ? 'px-4' : ''}`}><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
+        <div className={`space-y-3 px-4 ${isDesktop ? '' : ''}`}><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
       ) : isDesktop ? (
         // ── Desktop: split panel ──────────────────────────────────────────
         <div className="flex flex-row h-[calc(100vh-180px)] overflow-hidden">
@@ -449,9 +449,10 @@ export function ProjectsPage() {
       ) : (
         // ── Mobile: card list ──────────────────────────────────────────────
         filtered.length === 0 ? (
-          <p className="text-text-tertiary text-sm">No projects. Tap + to create one.</p>
+          <p className="text-text-tertiary text-sm px-4">No projects. Tap + to create one.</p>
         ) : (
           <AnimatePresence mode="popLayout">
+            <div className="px-4">
             {filtered.map(project => {
               const counts = taskCounts?.[project.id]
               const progress = counts && counts.total > 0 ? (counts.completed / counts.total) * 100 : 0
@@ -497,6 +498,7 @@ export function ProjectsPage() {
                 </motion.div>
               )
             })}
+            </div>
           </AnimatePresence>
         )
       )}

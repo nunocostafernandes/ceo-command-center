@@ -173,16 +173,19 @@ export function RemindersPage() {
 
   return (
     <>
-      <div className="px-4 pt-[calc(var(--safe-top)+24px)] pb-8 max-w-xl mx-auto lg:px-8">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-text-primary">Reminders</h1>
-          <button
-            onClick={openCreate}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition-colors"
-          >
-            <Plus size={16} />Add
-          </button>
+      <div className="pb-8 max-w-xl mx-auto lg:px-8">
+        <div className="mobile-header px-4 lg:px-0 lg:pt-[calc(var(--safe-top)+24px)] mb-4 lg:mb-6">
+          <div className="flex items-center justify-between">
+            <h1 className="text-[22px] lg:text-2xl font-bold text-text-primary tracking-tight">Reminders</h1>
+            <button
+              onClick={openCreate}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition-colors tap-target"
+            >
+              <Plus size={16} />Add
+            </button>
+          </div>
         </div>
+        <div className="px-4 lg:px-0">
 
         {isLoading && (
           <div className="space-y-2">
@@ -206,6 +209,7 @@ export function RemindersPage() {
             <Section title="Done" items={done} />
           </>
         )}
+        </div>
       </div>
 
       {/* Create sheet */}
