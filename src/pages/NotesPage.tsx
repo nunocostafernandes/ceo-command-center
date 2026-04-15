@@ -40,21 +40,58 @@ function stripHtml(html: string): string {
   }
 }
 
-// Tiptap-native HTML only contains <p>, <strong>, <em>, <u>, <ul>, <ol>, <li>,
-// <a>, <table>, <tr>, <th>, <td>, task-list nodes. Any other HTML (from pasted
-// content or old notes) will crash ProseMirror's schema validator — strip it to
-// safe plain text first.
+// Like stripHtml, but preserves line structure: <br> → \n, </p> → \n\n,
+// </li> → \n. Used for the plain-text textarea fallback so paragraphs don't
+// collapse into a single line.
+function htmlToPlainText(html: string): string {
+  if (!html) return ''
+  if (!html.includes('<')) return html
+  const normalized = html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr|h[1-6])>/gi, '\n\n')
+    .replace(/<\/(th|td)>/gi, '\t')
+  const text = (() => {
+    try {
+      return new DOMParser().parseFromString(normalized, 'text/html').body.textContent ?? ''
+    } catch {
+      return normalized.replace(/<[^>]*>/g, '')
+    }
+  })()
+  return text.replace(/\n{3,}/g, '\n\n').trim()
+}
+
+// Tiptap-native HTML contains <p>, <strong>, <em>, <u>, <ul>, <ol>, <li>,
+// <a>, <br> (HardBreak), <table>, <tr>, <th>, <td>, task-list nodes. Any other
+// HTML (from pasted content or old notes) will crash ProseMirror's schema
+// validator — strip it to safe plain text first, then convert plain-text line
+// breaks into paragraphs so Tiptap renders them correctly.
+function plainTextToHtml(text: string): string {
+  if (!text) return ''
+  const escape = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const paragraphs = text.split(/\n{2,}/)
+  return paragraphs
+    .map(p => {
+      const lines = p.split('\n').map(escape)
+      return `<p>${lines.join('<br>')}</p>`
+    })
+    .join('')
+}
+
 function safeContent(raw: string | null): string {
   if (!raw) return ''
-  if (!raw.includes('<')) return raw
+  // Plain text (no HTML at all) — recover paragraph/line structure so it
+  // doesn't all collapse onto a single line inside Tiptap.
+  if (!raw.includes('<')) return plainTextToHtml(raw)
   const isLegacy =
     raw.includes('style=') ||
     raw.includes('<div') ||
     raw.includes('<span') ||
-    raw.includes('<br') ||
     raw.includes('&nbsp;') ||
     raw.includes('<script')
-  return isLegacy ? stripHtml(raw) : raw
+  // Legacy/unsafe HTML: strip to plain text, then re-wrap so line breaks
+  // survive the round-trip through Tiptap.
+  return isLegacy ? plainTextToHtml(stripHtml(raw)) : raw
 }
 
 // ─── Error boundary ───────────────────────────────────────────────────────────
@@ -757,7 +794,7 @@ function PlainTextFallback({ note, onSave, onDelete, onBack }: {
   onBack: () => void
 }) {
   const [title, setTitle] = useState(note?.title ?? '')
-  const [body, setBody] = useState(stripHtml(note?.content ?? ''))
+  const [body, setBody] = useState(htmlToPlainText(note?.content ?? ''))
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Always-current refs — same pattern as NoteEditorContent
