@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-REPO_DIR="/Users/nunocostafernandes/CRANK Dropbox/18B-Crank Nuno/Claude/ceo-command-center"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VPS_USER="root"
 VPS_IP="187.77.129.84"
 APP_DIR="/var/www/ceo-command-center"
